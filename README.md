@@ -4,7 +4,8 @@ A modular toolkit for building, testing, and evaluating agentic research workflo
 
 This repository is designed as a professional, collaboration-friendly foundation for research agents, retrieval-augmented generation, tool calling, evaluation pipelines, and future MCP/cloud integrations.
 
-## Purpose
+## Purpose  ##
+
 
 The goal is to provide a clean framework where contributors can safely build their own branches without breaking the stable `main` branch.
 
