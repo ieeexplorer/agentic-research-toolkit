@@ -1,0 +1,938 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback } from "react";
+     4→import { useToolkitStore } from "@/hooks/use-toolkit-store";
+     5→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+     6→import { Button } from "@/components/ui/button";
+     7→import { Badge } from "@/components/ui/badge";
+     8→import { Input } from "@/components/ui/input";
+     9→import { Textarea } from "@/components/ui/textarea";
+    10→import { Label } from "@/components/ui/label";
+    11→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    12→import {
+    13→  Dialog,
+    14→  DialogContent,
+    15→  DialogHeader,
+    16→  DialogTitle,
+    17→  DialogTrigger,
+    18→  DialogFooter,
+    19→  DialogClose,
+    20→} from "@/components/ui/dialog";
+    21→import { Separator } from "@/components/ui/separator";
+    22→import { ScrollArea } from "@/components/ui/scroll-area";
+    23→import { Skeleton } from "@/components/ui/skeleton";
+    24→import { Progress } from "@/components/ui/progress";
+    25→import {
+    26→  DropdownMenu,
+    27→  DropdownMenuContent,
+    28→  DropdownMenuItem,
+    29→  DropdownMenuTrigger,
+    30→} from "@/components/ui/dropdown-menu";
+    31→import {
+    32→  Bot,
+    33→  Plus,
+    34→  Play,
+    35→  Trash2,
+    36→  ChevronRight,
+    37→  Settings,
+    38→  Clock,
+    39→  Coins,
+    40→  Zap,
+    41→  Pencil,
+    42→  ChevronDown,
+    43→  ChevronUp,
+    44→  BotIcon,
+    45→  Sparkles,
+    46→  FileText,
+    47→  ArrowUpDown,
+    48→  MoreHorizontal,
+    49→  CheckCircle2,
+    50→  XCircle,
+    51→  AlertCircle,
+    52→  Archive,
+    53→} from "lucide-react";
+    54→import { toast } from "sonner";
+    55→import { motion, AnimatePresence } from "framer-motion";
+    56→import ReactMarkdown from "react-markdown";
+    57→
+    58→interface Agent {
+    59→  id: string;
+    60→  name: string;
+    61→  description: string;
+    62→  type: string;
+    63→  systemPrompt: string;
+    64→  model: string;
+    65→  temperature: number;
+    66→  maxTokens: number;
+    67→  status: string;
+    68→  _count?: { executions: number; workflowNodes: number };
+    69→  executions?: AgentExecution[];
+    70→}
+    71→
+    72→interface AgentExecution {
+    73→  id: string;
+    74→  input: string;
+    75→  output: string;
+    76→  status: string;
+    77→  duration: number;
+    78→  tokensUsed: number;
+    79→  createdAt: string;
+    80→}
+    81→
+    82→const TYPE_COLORS: Record<string, string> = {
+    83→  research: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+    84→  planning: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+    85→  retrieval: "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300",
+    86→  writing: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
+    87→  evaluation: "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300",
+    88→  custom: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+    89→};
+    90→
+    91→const TYPE_ICONS: Record<string, string> = {
+    92→  research: "🔬",
+    93→  planning: "📋",
+    94→  retrieval: "🔍",
+    95→  writing: "✍️",
+    96→  evaluation: "✅",
+    97→  custom: "⚙️",
+    98→};
+    99→
+   100→const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "outline"; className: string }> = {
+   101→  active: { label: "Active", variant: "default", className: "bg-emerald-600 hover:bg-emerald-700 text-white" },
+   102→  draft: { label: "Draft", variant: "secondary", className: "" },
+   103→  archived: { label: "Archived", variant: "outline", className: "" },
+   104→};
+   105→
+   106→const MODEL_OPTIONS = [
+   107→  { value: "gpt-4o", label: "GPT-4o" },
+   108→  { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+   109→  { value: "claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
+   110→];
+   111→
+   112→const TYPE_OPTIONS = ["research", "planning", "retrieval", "writing", "evaluation", "custom"] as const;
+   113→
+   114→function timeAgo(d: string) {
+   115→  const mins = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
+   116→  if (mins < 1) return "just now";
+   117→  if (mins < 60) return `${mins}m ago`;
+   118→  const h = Math.floor(mins / 60);
+   119→  if (h < 24) return `${h}h ago`;
+   120→  return `${Math.floor(h / 24)}d ago`;
+   121→}
+   122→
+   123→function TokenUsageBar({ tokensUsed }: { tokensUsed: number }) {
+   124→  const maxRef = 8000;
+   125→  const pct = Math.min((tokensUsed / maxRef) * 100, 100);
+   126→  const color =
+   127→    pct < 30
+   128→      ? "text-emerald-600 dark:text-emerald-400"
+   129→      : pct < 70
+   130→        ? "text-amber-600 dark:text-amber-400"
+   131→        : "text-rose-600 dark:text-rose-400";
+   132→  return (
+   133→    <div className="flex items-center gap-2">
+   134→      <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+   135→        <motion.div
+   136→          className={`h-full rounded-full ${pct < 30 ? "bg-emerald-500" : pct < 70 ? "bg-amber-500" : "bg-rose-500"}`}
+   137→          initial={{ width: 0 }}
+   138→          animate={{ width: `${pct}%` }}
+   139→          transition={{ duration: 0.5, ease: "easeOut" }}
+   140→        />
+   141→      </div>
+   142→      <span className={`text-xs font-medium ${color}`}>{tokensUsed.toLocaleString()}</span>
+   143→    </div>
+   144→  );
+   145→}
+   146→
+   147→function ExecutionStatusIcon({ status }: { status: string }) {
+   148→  if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+   149→  if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-rose-500" />;
+   150→  return <AlertCircle className="h-3.5 w-3.5 text-amber-500" />;
+   151→}
+   152→
+   153→function ExecutionCard({ exec }: { exec: AgentExecution }) {
+   154→  const [expanded, setExpanded] = useState(false);
+   155→  const isLong = (exec.output?.length ?? 0) > 300;
+   156→
+   157→  return (
+   158→    <motion.div
+   159→      initial={{ opacity: 0, y: 8 }}
+   160→      animate={{ opacity: 1, y: 0 }}
+   161→      className="rounded-lg border bg-card"
+   162→    >
+   163→      <div className="p-3 space-y-2">
+   164→        <div className="flex items-center justify-between flex-wrap gap-2">
+   165→          <div className="flex items-center gap-2 flex-wrap">
+   166→            <ExecutionStatusIcon status={exec.status} />
+   167→            <Badge
+   168→              variant={
+   169→                exec.status === "completed"
+   170→                  ? "default"
+   171→                  : exec.status === "failed"
+   172→                    ? "destructive"
+   173→                    : "secondary"
+   174→              }
+   175→              className="text-xs"
+   176→            >
+   177→              {exec.status}
+   178→            </Badge>
+   179→            <span className="text-xs text-muted-foreground flex items-center gap-1">
+   180→              <Clock className="h-3 w-3" />
+   181→              {exec.duration}ms
+   182→            </span>
+   183→            <TokenUsageBar tokensUsed={exec.tokensUsed} />
+   184→          </div>
+   185→          <span className="text-xs text-muted-foreground">{timeAgo(exec.createdAt)}</span>
+   186→        </div>
+   187→
+   188→        <p className="text-xs text-muted-foreground">
+   189→          <span className="font-medium text-foreground/70">Input:</span> {exec.input}
+   190→        </p>
+   191→
+   192→        {exec.output && (
+   193→          <div className="rounded-md bg-muted/40 border border-border/50 overflow-hidden">
+   194→            <div
+   195→              className="prose prose-xs dark:prose-invert max-w-none p-3 text-xs leading-relaxed overflow-y-auto [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+   196→              style={{ maxHeight: expanded ? "none" : "6rem" }}
+   197→            >
+   198→              <ReactMarkdown>{exec.output}</ReactMarkdown>
+   199→            </div>
+   200→            {isLong && (
+   201→              <button
+   202→                onClick={() => setExpanded(!expanded)}
+   203→                className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-1.5 border-t border-border/50 flex items-center justify-center gap-1"
+   204→              >
+   205→                {expanded ? (
+   206→                  <>
+   207→                    <ChevronUp className="h-3 w-3" /> Show less
+   208→                  </>
+   209→                ) : (
+   210→                  <>
+   211→                    <ChevronDown className="h-3 w-3" /> Show more
+   212→                  </>
+   213→                )}
+   214→              </button>
+   215→            )}
+   216→          </div>
+   217→        )}
+   218→      </div>
+   219→    </motion.div>
+   220→  );
+   221→}
+   222→
+   223→function AgentListItem({
+   224→  agent,
+   225→  isSelected,
+   226→  onClick,
+   227→}: {
+   228→  agent: Agent;
+   229→  isSelected: boolean;
+   230→  onClick: () => void;
+   231→}) {
+   232→  const statusCfg = STATUS_CONFIG[agent.status] || STATUS_CONFIG.draft;
+   233→  return (
+   234→    <motion.button
+   235→      layout
+   236→      onClick={onClick}
+   237→      className={`w-full text-left p-3 rounded-lg transition-all flex items-center gap-3 group ${
+   238→        isSelected
+   239→          ? "bg-primary/5 border border-primary/20 shadow-sm"
+   240→          : "hover:bg-muted/60 border border-transparent"
+   241→      }`}
+   242→      whileHover={{ x: 2 }}
+   243→      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+   244→    >
+   245→      <div className="text-xl flex-shrink-0">{TYPE_ICONS[agent.type] || "⚙️"}</div>
+   246→      <div className="flex-1 min-w-0">
+   247→        <div className="flex items-center gap-2">
+   248→          <p className="font-medium text-sm truncate">{agent.name}</p>
+   249→          {agent.status !== "active" && (
+   250→            <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+   251→              {statusCfg.label}
+   252→            </Badge>
+   253→          )}
+   254→        </div>
+   255→        <p className="text-xs text-muted-foreground truncate">{agent.description || agent.type}</p>
+   256→      </div>
+   257→      <div className="flex items-center gap-1 flex-shrink-0">
+   258→        {agent._count && agent._count.executions > 0 && (
+   259→          <span className="text-[10px] text-muted-foreground tabular-nums">
+   260→            {agent._count.executions} runs
+   261→          </span>
+   262→        )}
+   263→        <ChevronRight
+   264→          className={`h-4 w-4 text-muted-foreground transition-opacity flex-shrink-0 ${
+   265→            isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+   266→          }`}
+   267→        />
+   268→      </div>
+   269→    </motion.button>
+   270→  );
+   271→}
+   272→
+   273→function EmptyListState({ onCreateClick }: { onCreateClick: () => void }) {
+   274→  return (
+   275→    <motion.div
+   276→      initial={{ opacity: 0, scale: 0.95 }}
+   277→      animate={{ opacity: 1, scale: 1 }}
+   278→      className="flex flex-col items-center justify-center py-16 px-6 text-center"
+   279→    >
+   280→      <div className="rounded-2xl bg-muted/50 p-4 mb-4">
+   281→        <Bot className="h-10 w-10 text-muted-foreground/60" />
+   282→      </div>
+   283→      <h3 className="text-sm font-semibold mb-1">No agents yet</h3>
+   284→      <p className="text-xs text-muted-foreground mb-4 max-w-[200px]">
+   285→        Create your first agent to start building powerful research workflows.
+   286→      </p>
+   287→      <Button size="sm" onClick={onCreateClick} className="gap-1.5">
+   288→        <Plus className="h-3.5 w-3.5" />
+   289→        Create Agent
+   290→      </Button>
+   291→    </motion.div>
+   292→  );
+   293→}
+   294→
+   295→function EmptyDetailState() {
+   296→  return (
+   297→    <motion.div
+   298→      initial={{ opacity: 0 }}
+   299→      animate={{ opacity: 1 }}
+   300→      className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-6"
+   301→    >
+   302→      <div className="rounded-2xl bg-muted/40 p-5 mb-4">
+   303→        <Sparkles className="h-10 w-10 text-muted-foreground/40" />
+   304→      </div>
+   305→      <h3 className="text-sm font-medium text-muted-foreground mb-1">
+   306→        Select an agent
+   307→      </h3>
+   308→      <p className="text-xs text-muted-foreground/70 max-w-[220px]">
+   309→        Choose an agent from the list to view its details, configuration, and execution history.
+   310→      </p>
+   311→    </motion.div>
+   312→  );
+   313→}
+   314→
+   315→export function AgentsView() {
+   316→  const { selectedAgentId, setSelectedAgentId, refreshing } = useToolkitStore();
+   317→  const [agents, setAgents] = useState<Agent[]>([]);
+   318→  const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
+   319→  const [loading, setLoading] = useState(true);
+   320→  const [executing, setExecuting] = useState(false);
+   321→  const [createOpen, setCreateOpen] = useState(false);
+   322→  const [editOpen, setEditOpen] = useState(false);
+   323→  const [editAgent, setEditAgent] = useState({
+   324→    name: "",
+   325→    description: "",
+   326→    type: "research",
+   327→    systemPrompt: "",
+   328→    model: "gpt-4o",
+   329→    temperature: 0.7,
+   330→  });
+   331→  const [editSaving, setEditSaving] = useState(false);
+   332→  const [newAgent, setNewAgent] = useState({
+   333→    name: "",
+   334→    description: "",
+   335→    type: "research",
+   336→    systemPrompt: "",
+   337→    model: "gpt-4o",
+   338→    temperature: 0.7,
+   339→  });
+   340→  const [execInput, setExecInput] = useState("");
+   341→
+   342→  const fetchAgents = useCallback(async () => {
+   343→    setLoading(true);
+   344→    try {
+   345→      const res = await fetch("/api/agents");
+   346→      const data = await res.json();
+   347→      setAgents(data);
+   348→    } finally {
+   349→      setLoading(false);
+   350→    }
+   351→  }, []);
+   352→
+   353→  useEffect(() => {
+   354→    fetchAgents();
+   355→  }, [fetchAgents, refreshing]);
+   356→
+   357→  useEffect(() => {
+   358→    if (!selectedAgentId) {
+   359→      setDetailAgent(null);
+   360→      return;
+   361→    }
+   362→    let cancelled = false;
+   363→    fetch(`/api/agents/${selectedAgentId}`)
+   364→      .then((r) => r.json())
+   365→      .then((data) => {
+   366→        if (!cancelled) setDetailAgent(data);
+   367→      })
+   368→      .catch(() => {});
+   369→    return () => {
+   370→      cancelled = true;
+   371→    };
+   372→  }, [selectedAgentId, refreshing]);
+   373→
+   374→  const handleCreate = async () => {
+   375→    await fetch("/api/agents", {
+   376→      method: "POST",
+   377→      headers: { "Content-Type": "application/json" },
+   378→      body: JSON.stringify(newAgent),
+   379→    });
+   380→    toast.success("Agent created");
+   381→    setCreateOpen(false);
+   382→    setNewAgent({ name: "", description: "", type: "research", systemPrompt: "", model: "gpt-4o", temperature: 0.7 });
+   383→    fetchAgents();
+   384→  };
+   385→
+   386→  const handleDelete = async (id: string) => {
+   387→    await fetch(`/api/agents/${id}`, { method: "DELETE" });
+   388→    toast.success("Agent deleted");
+   389→    if (selectedAgentId === id) setSelectedAgentId(null);
+   390→    fetchAgents();
+   391→  };
+   392→
+   393→  const handleExecute = async () => {
+   394→    if (!selectedAgentId) return;
+   395→    setExecuting(true);
+   396→    try {
+   397→      const res = await fetch(`/api/agents/${selectedAgentId}/execute`, {
+   398→        method: "POST",
+   399→        headers: { "Content-Type": "application/json" },
+   400→        body: JSON.stringify({ input: execInput || "Run analysis" }),
+   401→      });
+   402→      const execution = await res.json();
+   403→      toast.success(`Execution completed in ${execution.duration}ms`);
+   404→      setExecInput("");
+   405→      fetch(`/api/agents/${selectedAgentId}`)
+   406→        .then((r) => r.json())
+   407→        .then(setDetailAgent);
+   408→      fetchAgents();
+   409→    } catch {
+   410→      toast.error("Execution failed");
+   411→    }
+   412→    setExecuting(false);
+   413→  };
+   414→
+   415→  const openEditDialog = () => {
+   416→    if (!detailAgent) return;
+   417→    setEditAgent({
+   418→      name: detailAgent.name,
+   419→      description: detailAgent.description,
+   420→      type: detailAgent.type,
+   421→      systemPrompt: detailAgent.systemPrompt,
+   422→      model: detailAgent.model,
+   423→      temperature: detailAgent.temperature,
+   424→    });
+   425→    setEditOpen(true);
+   426→  };
+   427→
+   428→  const handleEditSave = async () => {
+   429→    if (!detailAgent) return;
+   430→    setEditSaving(true);
+   431→    try {
+   432→      const res = await fetch(`/api/agents/${detailAgent.id}`, {
+   433→        method: "PUT",
+   434→        headers: { "Content-Type": "application/json" },
+   435→        body: JSON.stringify(editAgent),
+   436→      });
+   437→      if (!res.ok) throw new Error("Failed to save");
+   438→      toast.success("Agent updated");
+   439→      setEditOpen(false);
+   440→      // Refresh detail
+   441→      fetch(`/api/agents/${detailAgent.id}`)
+   442→        .then((r) => r.json())
+   443→        .then(setDetailAgent);
+   444→      fetchAgents();
+   445→    } catch {
+   446→      toast.error("Failed to update agent");
+   447→    }
+   448→    setEditSaving(false);
+   449→  };
+   450→
+   451→  const handleStatusToggle = async (newStatus: string) => {
+   452→    if (!detailAgent || detailAgent.status === newStatus) return;
+   453→    try {
+   454→      const res = await fetch(`/api/agents/${detailAgent.id}`, {
+   455→        method: "PUT",
+   456→        headers: { "Content-Type": "application/json" },
+   457→        body: JSON.stringify({ status: newStatus }),
+   458→      });
+   459→      if (!res.ok) throw new Error();
+   460→      toast.success(`Status changed to ${newStatus}`);
+   461→      fetch(`/api/agents/${detailAgent.id}`)
+   462→        .then((r) => r.json())
+   463→        .then(setDetailAgent);
+   464→      fetchAgents();
+   465→    } catch {
+   466→      toast.error("Failed to change status");
+   467→    }
+   468→  };
+   469→
+   470→  return (
+   471→    <div className="space-y-6">
+   472→      {/* Header */}
+   473→      <div className="flex items-center justify-between">
+   474→        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+   475→          <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
+   476→          <p className="text-muted-foreground text-sm mt-0.5">
+   477→            Create and manage your research agents.
+   478→          </p>
+   479→        </motion.div>
+   480→        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   481→          <DialogTrigger asChild>
+   482→            <Button>
+   483→              <Plus className="h-4 w-4 mr-2" />
+   484→              New Agent
+   485→            </Button>
+   486→          </DialogTrigger>
+   487→          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+   488→            <DialogHeader>
+   489→              <DialogTitle>Create Agent</DialogTitle>
+   490→            </DialogHeader>
+   491→            <div className="space-y-4 pt-2">
+   492→              <div className="grid grid-cols-2 gap-4">
+   493→                <div className="space-y-2">
+   494→                  <Label>Name</Label>
+   495→                  <Input
+   496→                    value={newAgent.name}
+   497→                    onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })}
+   498→                    placeholder="Research Analyst"
+   499→                  />
+   500→                </div>
+   501→                <div className="space-y-2">
+   502→                  <Label>Type</Label>
+   503→                  <Select
+   504→                    value={newAgent.type}
+   505→                    onValueChange={(v) => setNewAgent({ ...newAgent, type: v })}
+   506→                  >
+   507→                    <SelectTrigger>
+   508→                      <SelectValue />
+   509→                    </SelectTrigger>
+   510→                    <SelectContent>
+   511→                      {TYPE_OPTIONS.map((t) => (
+   512→                        <SelectItem key={t} value={t}>
+   513→                          {TYPE_ICONS[t]} {t.charAt(0).toUpperCase() + t.slice(1)}
+   514→                        </SelectItem>
+   515→                      ))}
+   516→                    </SelectContent>
+   517→                  </Select>
+   518→                </div>
+   519→              </div>
+   520→              <div className="space-y-2">
+   521→                <Label>Description</Label>
+   522→                <Textarea
+   523→                  value={newAgent.description}
+   524→                  onChange={(e) => setNewAgent({ ...newAgent, description: e.target.value })}
+   525→                  placeholder="What does this agent do?"
+   526→                  rows={2}
+   527→                />
+   528→              </div>
+   529→              <div className="space-y-2">
+   530→                <Label>System Prompt</Label>
+   531→                <Textarea
+   532→                  value={newAgent.systemPrompt}
+   533→                  onChange={(e) => setNewAgent({ ...newAgent, systemPrompt: e.target.value })}
+   534→                  placeholder="You are a..."
+   535→                  rows={3}
+   536→                />
+   537→              </div>
+   538→              <div className="grid grid-cols-2 gap-4">
+   539→                <div className="space-y-2">
+   540→                  <Label>Model</Label>
+   541→                  <Select
+   542→                    value={newAgent.model}
+   543→                    onValueChange={(v) => setNewAgent({ ...newAgent, model: v })}
+   544→                  >
+   545→                    <SelectTrigger>
+   546→                      <SelectValue />
+   547→                    </SelectTrigger>
+   548→                    <SelectContent>
+   549→                      {MODEL_OPTIONS.map((m) => (
+   550→                        <SelectItem key={m.value} value={m.value}>
+   551→                          {m.label}
+   552→                        </SelectItem>
+   553→                      ))}
+   554→                    </SelectContent>
+   555→                  </Select>
+   556→                </div>
+   557→                <div className="space-y-2">
+   558→                  <Label>Temperature: {newAgent.temperature}</Label>
+   559→                  <Input
+   560→                    type="range"
+   561→                    min={0}
+   562→                    max={2}
+   563→                    step={0.1}
+   564→                    value={newAgent.temperature}
+   565→                    onChange={(e) =>
+   566→                      setNewAgent({ ...newAgent, temperature: parseFloat(e.target.value) })
+   567→                    }
+   568→                    className="h-9"
+   569→                  />
+   570→                </div>
+   571→              </div>
+   572→              <Button
+   573→                onClick={handleCreate}
+   574→                className="w-full"
+   575→                disabled={!newAgent.name}
+   576→              >
+   577→                Create Agent
+   578→              </Button>
+   579→            </div>
+   580→          </DialogContent>
+   581→        </Dialog>
+   582→      </div>
+   583→
+   584→      {/* Edit Dialog */}
+   585→      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+   586→        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+   587→          <DialogHeader>
+   588→            <DialogTitle>Edit Agent</DialogTitle>
+   589→          </DialogHeader>
+   590→          <div className="space-y-4 pt-2">
+   591→            <div className="grid grid-cols-2 gap-4">
+   592→              <div className="space-y-2">
+   593→                <Label>Name</Label>
+   594→                <Input
+   595→                  value={editAgent.name}
+   596→                  onChange={(e) => setEditAgent({ ...editAgent, name: e.target.value })}
+   597→                />
+   598→              </div>
+   599→              <div className="space-y-2">
+   600→                <Label>Type</Label>
+   601→                <Select
+   602→                  value={editAgent.type}
+   603→                  onValueChange={(v) => setEditAgent({ ...editAgent, type: v })}
+   604→                >
+   605→                  <SelectTrigger>
+   606→                    <SelectValue />
+   607→                  </SelectTrigger>
+   608→                  <SelectContent>
+   609→                    {TYPE_OPTIONS.map((t) => (
+   610→                      <SelectItem key={t} value={t}>
+   611→                        {TYPE_ICONS[t]} {t.charAt(0).toUpperCase() + t.slice(1)}
+   612→                      </SelectItem>
+   613→                    ))}
+   614→                  </SelectContent>
+   615→                </Select>
+   616→              </div>
+   617→            </div>
+   618→            <div className="space-y-2">
+   619→              <Label>Description</Label>
+   620→              <Textarea
+   621→                value={editAgent.description}
+   622→                onChange={(e) => setEditAgent({ ...editAgent, description: e.target.value })}
+   623→                rows={2}
+   624→              />
+   625→            </div>
+   626→            <div className="space-y-2">
+   627→              <Label>System Prompt</Label>
+   628→              <Textarea
+   629→                value={editAgent.systemPrompt}
+   630→                onChange={(e) => setEditAgent({ ...editAgent, systemPrompt: e.target.value })}
+   631→                rows={4}
+   632→              />
+   633→            </div>
+   634→            <div className="grid grid-cols-2 gap-4">
+   635→              <div className="space-y-2">
+   636→                <Label>Model</Label>
+   637→                <Select
+   638→                  value={editAgent.model}
+   639→                  onValueChange={(v) => setEditAgent({ ...editAgent, model: v })}
+   640→                >
+   641→                  <SelectTrigger>
+   642→                    <SelectValue />
+   643→                  </SelectTrigger>
+   644→                  <SelectContent>
+   645→                    {MODEL_OPTIONS.map((m) => (
+   646→                      <SelectItem key={m.value} value={m.value}>
+   647→                        {m.label}
+   648→                      </SelectItem>
+   649→                    ))}
+   650→                  </SelectContent>
+   651→                </Select>
+   652→              </div>
+   653→              <div className="space-y-2">
+   654→                <Label>Temperature: {editAgent.temperature}</Label>
+   655→                <Input
+   656→                  type="range"
+   657→                  min={0}
+   658→                  max={2}
+   659→                  step={0.1}
+   660→                  value={editAgent.temperature}
+   661→                  onChange={(e) =>
+   662→                    setEditAgent({ ...editAgent, temperature: parseFloat(e.target.value) })
+   663→                  }
+   664→                  className="h-9"
+   665→                />
+   666→              </div>
+   667→            </div>
+   668→            <DialogFooter className="gap-2 pt-2">
+   669→              <DialogClose asChild>
+   670→                <Button variant="outline">Cancel</Button>
+   671→              </DialogClose>
+   672→              <Button onClick={handleEditSave} disabled={editSaving || !editAgent.name}>
+   673→                {editSaving ? "Saving..." : "Save Changes"}
+   674→              </Button>
+   675→            </DialogFooter>
+   676→          </div>
+   677→        </DialogContent>
+   678→      </Dialog>
+   679→
+   680→      {/* Main Grid */}
+   681→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   682→        {/* Agent List Column */}
+   683→        <div className="lg:col-span-1">
+   684→          <Card className="overflow-hidden">
+   685→            <CardHeader className="pb-3">
+   686→              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+   687→                All Agents
+   688→              </CardTitle>
+   689→            </CardHeader>
+   690→            <CardContent className="p-2">
+   691→              {loading ? (
+   692→                <div className="space-y-2 p-2">
+   693→                  {[1, 2, 3].map((i) => (
+   694→                    <Skeleton key={i} className="h-16 w-full rounded-lg" />
+   695→                  ))}
+   696→                </div>
+   697→              ) : agents.length === 0 ? (
+   698→                <EmptyListState onCreateClick={() => setCreateOpen(true)} />
+   699→              ) : (
+   700→                <ScrollArea className="max-h-[500px]">
+   701→                  <div className="space-y-1 p-1">
+   702→                    <AnimatePresence mode="popLayout">
+   703→                      {agents.map((agent) => (
+   704→                        <AgentListItem
+   705→                          key={agent.id}
+   706→                          agent={agent}
+   707→                          isSelected={selectedAgentId === agent.id}
+   708→                          onClick={() =>
+   709→                            setSelectedAgentId(selectedAgentId === agent.id ? null : agent.id)
+   710→                          }
+   711→                        />
+   712→                      ))}
+   713→                    </AnimatePresence>
+   714→                  </div>
+   715→                </ScrollArea>
+   716→              )}
+   717→            </CardContent>
+   718→          </Card>
+   719→        </div>
+   720→
+   721→        {/* Agent Detail Column */}
+   722→        <div className="lg:col-span-2">
+   723→          <AnimatePresence mode="wait">
+   724→            {detailAgent ? (
+   725→              <motion.div
+   726→                key={detailAgent.id}
+   727→                initial={{ opacity: 0, x: 12 }}
+   728→                animate={{ opacity: 1, x: 0 }}
+   729→                exit={{ opacity: 0, x: -12 }}
+   730→                transition={{ duration: 0.2, ease: "easeOut" }}
+   731→              >
+   732→                <Card className="overflow-hidden">
+   733→                  <CardHeader>
+   734→                    <div className="flex items-start justify-between gap-4">
+   735→                      <div className="flex items-center gap-3 min-w-0">
+   736→                        <div className="rounded-xl bg-muted/60 p-2.5 flex-shrink-0">
+   737→                          <span className="text-2xl">{TYPE_ICONS[detailAgent.type]}</span>
+   738→                        </div>
+   739→                        <div className="min-w-0">
+   740→                          <div className="flex items-center gap-2 flex-wrap">
+   741→                            <CardTitle className="truncate">{detailAgent.name}</CardTitle>
+   742→                            <Badge className={TYPE_COLORS[detailAgent.type]}>
+   743→                              {detailAgent.type}
+   744→                            </Badge>
+   745→                          </div>
+   746→                          <CardDescription className="mt-1 line-clamp-2">
+   747→                            {detailAgent.description || "No description"}
+   748→                          </CardDescription>
+   749→                        </div>
+   750→                      </div>
+   751→                      <div className="flex items-center gap-1 flex-shrink-0">
+   752→                        <DropdownMenu>
+   753→                          <DropdownMenuTrigger asChild>
+   754→                            <Button
+   755→                              variant={
+   756→                                detailAgent.status === "active" ? "default" : "outline"
+   757→                              }
+   758→                              size="sm"
+   759→                              className={`h-8 gap-1.5 ${
+   760→                                STATUS_CONFIG[detailAgent.status]?.className || ""
+   761→                              }`}
+   762→                            >
+   763→                              <div
+   764→                                className={`h-1.5 w-1.5 rounded-full ${
+   765→                                  detailAgent.status === "active"
+   766→                                    ? "bg-current animate-pulse"
+   767→                                    : detailAgent.status === "draft"
+   768→                                      ? "bg-amber-400"
+   769→                                      : "bg-muted-foreground"
+   770→                                }`}
+   771→                              />
+   772→                              {STATUS_CONFIG[detailAgent.status]?.label || detailAgent.status}
+   773→                            </Button>
+   774→                          </DropdownMenuTrigger>
+   775→                          <DropdownMenuContent align="end">
+   776→                            {(["active", "draft", "archived"] as const).map((s) => (
+   777→                              <DropdownMenuItem
+   778→                                key={s}
+   779→                                onClick={() => handleStatusToggle(s)}
+   780→                                disabled={detailAgent.status === s}
+   781→                              >
+   782→                                {s === "active" && <CheckCircle2 className="h-4 w-4 mr-2 text-emerald-500" />}
+   783→                                {s === "draft" && <FileText className="h-4 w-4 mr-2 text-amber-500" />}
+   784→                                {s === "archived" && <Archive className="h-4 w-4 mr-2 text-muted-foreground" />}
+   785→                                <span className="capitalize">{s}</span>
+   786→                              </DropdownMenuItem>
+   787→                            ))}
+   788→                          </DropdownMenuContent>
+   789→                        </DropdownMenu>
+   790→
+   791→                        <Button
+   792→                          variant="ghost"
+   793→                          size="icon"
+   794→                          className="h-8 w-8"
+   795→                          onClick={openEditDialog}
+   796→                        >
+   797→                          <Pencil className="h-4 w-4" />
+   798→                        </Button>
+   799→
+   800→                        <Button
+   801→                          variant="ghost"
+   802→                          size="icon"
+   803→                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+   804→                          onClick={() => handleDelete(detailAgent.id)}
+   805→                        >
+   806→                          <Trash2 className="h-4 w-4" />
+   807→                        </Button>
+   808→                      </div>
+   809→                    </div>
+   810→                  </CardHeader>
+   811→
+   812→                  <CardContent className="space-y-5">
+   813→                    {/* Stats Grid */}
+   814→                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+   815→                      {[
+   816→                        { icon: Bot, label: "Model", value: detailAgent.model },
+   817→                        { icon: Settings, label: "Temp", value: detailAgent.temperature },
+   818→                        {
+   819→                          icon: Coins,
+   820→                          label: "Max Tokens",
+   821→                          value: detailAgent.maxTokens?.toLocaleString() ?? "—",
+   822→                        },
+   823→                        {
+   824→                          icon: Zap,
+   825→                          label: "Executions",
+   826→                          value:
+   827→                            detailAgent._count?.executions ??
+   828→                            detailAgent.executions?.length ??
+   829→                            0,
+   830→                        },
+   831→                      ].map(({ icon: I, label, value }) => (
+   832→                        <motion.div
+   833→                          key={label}
+   834→                          initial={{ opacity: 0, y: 6 }}
+   835→                          animate={{ opacity: 1, y: 0 }}
+   836→                          className="flex items-center gap-2.5 p-3 rounded-xl bg-muted/40 border border-border/50"
+   837→                        >
+   838→                          <I className="h-4 w-4 text-muted-foreground" />
+   839→                          <div className="min-w-0">
+   840→                            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+   841→                              {label}
+   842→                            </p>
+   843→                            <p className="text-sm font-semibold truncate">{value}</p>
+   844→                          </div>
+   845→                        </motion.div>
+   846→                      ))}
+   847→                    </div>
+   848→
+   849→                    {/* System Prompt Preview */}
+   850→                    {detailAgent.systemPrompt && (
+   851→                      <div className="space-y-1.5">
+   852→                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+   853→                          System Prompt
+   854→                        </p>
+   855→                        <div className="rounded-lg border bg-muted/20 p-3">
+   856→                          <p className="text-xs text-foreground/80 line-clamp-3 leading-relaxed">
+   857→                            {detailAgent.systemPrompt}
+   858→                          </p>
+   859→                        </div>
+   860→                      </div>
+   861→                    )}
+   862→
+   863→                    <Separator />
+   864→
+   865→                    {/* Quick Execute */}
+   866→                    <div className="space-y-3">
+   867→                      <p className="text-sm font-medium flex items-center gap-2">
+   868→                        <Play className="h-4 w-4 text-emerald-500" />
+   869→                        Quick Execute
+   870→                      </p>
+   871→                      <div className="flex gap-2">
+   872→                        <Input
+   873→                          value={execInput}
+   874→                          onChange={(e) => setExecInput(e.target.value)}
+   875→                          placeholder="Enter a query or instruction..."
+   876→                          onKeyDown={(e) => e.key === "Enter" && handleExecute()}
+   877→                          className="flex-1"
+   878→                        />
+   879→                        <Button
+   880→                          onClick={handleExecute}
+   881→                          disabled={executing || detailAgent.status === "archived"}
+   882→                        >
+   883→                          {executing ? (
+   884→                            <span className="flex items-center gap-2">
+   885→                              <Zap className="h-4 w-4 animate-pulse" />
+   886→                              Running
+   887→                            </span>
+   888→                          ) : (
+   889→                            <>
+   890→                              <Play className="h-4 w-4" />
+   891→                              Run
+   892→                            </>
+   893→                          )}
+   894→                        </Button>
+   895→                      </div>
+   896→                    </div>
+   897→
+   898→                    {/* Execution History */}
+   899→                    {detailAgent.executions && detailAgent.executions.length > 0 && (
+   900→                      <>
+   901→                        <Separator />
+   902→                        <div className="space-y-3">
+   903→                          <p className="text-sm font-medium flex items-center gap-2">
+   904→                            <Clock className="h-4 w-4 text-muted-foreground" />
+   905→                            Execution History
+   906→                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+   907→                              {detailAgent.executions.length}
+   908→                            </Badge>
+   909→                          </p>
+   910→                          <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
+   911→                            {detailAgent.executions.map((exec) => (
+   912→                              <ExecutionCard key={exec.id} exec={exec} />
+   913→                            ))}
+   914→                          </div>
+   915→                        </div>
+   916→                      </>
+   917→                    )}
+   918→                  </CardContent>
+   919→                </Card>
+   920→              </motion.div>
+   921→            ) : (
+   922→              <motion.div
+   923→                key="empty"
+   924→                initial={{ opacity: 0 }}
+   925→                animate={{ opacity: 1 }}
+   926→                exit={{ opacity: 0 }}
+   927→              >
+   928→                <Card className="flex items-center justify-center min-h-[400px]">
+   929→                  <EmptyDetailState />
+   930→                </Card>
+   931→              </motion.div>
+   932→            )}
+   933→          </AnimatePresence>
+   934→        </div>
+   935→      </div>
+   936→    </div>
+   937→  );
+   938→}

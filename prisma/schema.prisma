@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  type        String   @default("research") // research, planning, retrieval, writing, evaluation, custom
+  systemPrompt String  @default("")
+  model       String   @default("gpt-4o")
+  temperature Float    @default(0.7)
+  maxTokens   Int      @default(4096)
+  config      String   @default("{}") // JSON: additional config
+  status      String   @default("active") // active, draft, archived
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  executions  AgentExecution[]
+  workflowNodes WorkflowNode[]
+}
+
+model AgentExecution {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  input     String   @default("")
+  output    String   @default("")
+  status    String   @default("pending") // pending, running, completed, failed
+  duration  Int      @default(0) // ms
+  tokensUsed Int     @default(0)
+  error     String?
+  createdAt DateTime @default(now())
+}
+
+model Tool {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  type        String   @default("api") // api, search, document, database, local, mcp
+  endpoint    String   @default("")
+  config      String   @default("{}") // JSON: auth, params, etc.
+  status      String   @default("active") // active, draft, archived
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  executions  ToolExecution[]
+  workflowNodes WorkflowNode[]
+}
+
+model ToolExecution {
+  id        String   @id @default(cuid())
+  toolId    String
+  tool      Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  input     String   @default("")
+  output    String   @default("")
+  status    String   @default("pending") // pending, running, completed, failed
+  duration  Int      @default(0)
+  error     String?
+  createdAt DateTime @default(now())
+}
+
+model Workflow {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  status      String   @default("draft") // draft, active, archived
+  config      String   @default("{}") // JSON: global workflow config
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  nodes       WorkflowNode[]
+  connections WorkflowConnection[]
+  executions  WorkflowExecution[]
+}
+
+model WorkflowNode {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  agentId     String?
+  agent       Agent?    @relation(fields: [agentId], references: [id])
+  toolId      String?
+  tool        Tool?     @relation(fields: [toolId], references: [id])
+  name        String
+  nodeType    String   @default("agent") // agent, tool, condition, transform, output
+  positionX   Float    @default(0)
+  positionY   Float    @default(0)
+  config      String   @default("{}") // JSON
+  sourceConnections WorkflowConnection[] @relation("SourceNode")
+  targetConnections WorkflowConnection[] @relation("TargetNode")
+}
+
+model WorkflowConnection {
+  id         String  @id @default(cuid())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceNodeId String
+  sourceNode WorkflowNode @relation("SourceNode", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String
+  targetNode WorkflowNode @relation("TargetNode", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  label      String  @default("")
+}
+
+model WorkflowExecution {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  input       String   @default("")
+  output      String   @default("")
+  status      String   @default("pending") // pending, running, completed, failed
+  nodeResults String   @default("[]") // JSON array of per-node results
+  duration    Int      @default(0)
+  error       String?
+  createdAt   DateTime @default(now())
+}
+
+model Memory {
+  id          String   @id @default(cuid())
+  key         String
+  value       String   @default("")
+  type        String   @default("short_term") // short_term, long_term, session
+  tags        String   @default("[]") // JSON array of tags
+  metadata    String   @default("{}") // JSON
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Evaluation {
+  id          String   @id @default(cuid())
+  name        String
+  agentId     String?
+  workflowId  String?
+  type        String   @default("quality") // quality, accuracy, relevance, coherence, custom
+  metric      String   @default("score") // score, pass_fail, ranking
+  config      String   @default("{}") // JSON: evaluation criteria
+  results     String   @default("[]") // JSON array of evaluation results
+  avgScore    Float    @default(0)
+  status      String   @default("active") // active, archived
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

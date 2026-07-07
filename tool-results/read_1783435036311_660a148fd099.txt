@@ -1,0 +1,632 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback, useMemo } from "react";
+     4→import { useToolkitStore } from "@/hooks/use-toolkit-store";
+     5→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+     6→import { Button } from "@/components/ui/button";
+     7→import { Badge } from "@/components/ui/badge";
+     8→import { Input } from "@/components/ui/input";
+     9→import { Label } from "@/components/ui/label";
+    10→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    11→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
+    12→import { Progress } from "@/components/ui/progress";
+    13→import { Separator } from "@/components/ui/separator";
+    14→import { ScrollArea } from "@/components/ui/scroll-area";
+    15→import { Skeleton } from "@/components/ui/skeleton";
+    16→import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+    17→import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+    18→import { motion, AnimatePresence } from "framer-motion";
+    19→import {
+    20→  BarChart3, Plus, Play, Trash2, CheckCircle2, XCircle, Clock, Zap,
+    21→  Edit3, MoreHorizontal, TrendingUp, Target, Inbox, BarChart, Edit,
+    22→  User, GitBranch,
+    23→} from "lucide-react";
+    24→import { BarChart, Bar, XAxis, YAxis, Cell } from "recharts";
+    25→import { toast } from "sonner";
+    26→
+    27→interface Evaluation {
+    28→  id: string;
+    29→  name: string;
+    30→  type: string;
+    31→  metric: string;
+    32→  config: string;
+    33→  results: string;
+    34→  avgScore: number;
+    35→  status: string;
+    36→  agentId?: string;
+    37→  workflowId?: string;
+    38→  createdAt: string;
+    39→  updatedAt: string;
+    40→}
+    41→
+    42→const TYPE_COLORS: Record<string, string> = {
+    43→  quality: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300",
+    44→  accuracy: "bg-teal-100 text-teal-700 dark:bg-teal-950/80 dark:text-teal-300",
+    45→  relevance: "bg-violet-100 text-violet-700 dark:bg-violet-950/80 dark:text-violet-300",
+    46→  coherence: "bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300",
+    47→  custom: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+    48→};
+    49→
+    50→const chartConfig = {
+    51→  score: { label: "Score", color: "hsl(var(--primary))" },
+    52→};
+    53→
+    54→function getScoreColor(score: number): string {
+    55→  if (score >= 7) return "text-emerald-600 dark:text-emerald-400";
+    56→  if (score >= 5) return "text-amber-600 dark:text-amber-400";
+    57→  return "text-rose-600 dark:text-rose-400";
+    58→}
+    59→
+    60→function getScoreBgColor(score: number): string {
+    61→  if (score >= 7) return "bg-emerald-500";
+    62→  if (score >= 5) return "bg-amber-500";
+    63→  return "bg-rose-500";
+    64→}
+    65→
+    66→function getScoreBadgeStyle(score: number): string {
+    67→  if (score >= 7) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300";
+    68→  if (score >= 5) return "bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300";
+    69→  return "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300";
+    70→}
+    71→
+    72→function getScoreBarColor(score: number): string {
+    73→  if (score >= 7) return "#10b981";
+    74→  if (score >= 5) return "#f59e0b";
+    75→  return "#ef4444";
+    76→}
+    77→
+    78→function formatDate(d: string) {
+    79→  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    80→}
+    81→
+    82→export function EvaluationsView() {
+    83→  const { refreshing } = useToolkitStore();
+    84→  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+    85→  const [loading, setLoading] = useState(true);
+    86→  const [selectedId, setSelectedId] = useState<string | null>(null);
+    87→  const [running, setRunning] = useState<string | null>(null);
+    88→  const [createOpen, setCreateOpen] = useState(false);
+    89→  const [editOpen, setEditOpen] = useState(false);
+    90→  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+    91→  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
+    92→  const [newEval, setNewEval] = useState({ name: "", type: "quality", metric: "score", agentId: "", workflowId: "" });
+    93→  const [editForm, setEditForm] = useState({ name: "", type: "", metric: "" });
+    94→
+    95→  const fetchEvals = useCallback(async (signal?: AbortSignal) => {
+    96→    if (signal?.aborted) return;
+    97→    const res = await fetch("/api/evaluations", { signal });
+    98→    const data = await res.json();
+    99→    if (!signal?.aborted) {
+   100→      setEvaluations(data);
+   101→      setLoading(false);
+   102→    }
+   103→  }, []);
+   104→
+   105→  const fetchAgentsAndWorkflows = useCallback(async () => {
+   106→    try {
+   107→      const [agentRes, workflowRes] = await Promise.all([
+   108→        fetch("/api/agents"),
+   109→        fetch("/api/workflows"),
+   110→      ]);
+   111→      const agentData = await agentRes.json().catch(() => []);
+   112→      const workflowData = await workflowRes.json().catch(() => []);
+   113→      setAgents(Array.isArray(agentData) ? agentData.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name })) : []);
+   114→      setWorkflows(Array.isArray(workflowData) ? workflowData.map((w: { id: string; name: string }) => ({ id: w.id, name: w.name })) : []);
+   115→    } catch {
+   116→      // Silently fail if endpoints don't exist
+   117→    }
+   118→  }, []);
+   119→
+   120→  useEffect(() => {
+   121→    const controller = new AbortController();
+   122→    setLoading(true);
+   123→    void fetchEvals(controller.signal);
+   124→    void fetchAgentsAndWorkflows();
+   125→    return () => controller.abort();
+   126→  }, [fetchEvals, fetchAgentsAndWorkflows, refreshing]);
+   127→
+   128→  const handleCreate = async () => {
+   129→    const body: Record<string, string> = { name: newEval.name, type: newEval.type, metric: newEval.metric };
+   130→    if (newEval.agentId) body.agentId = newEval.agentId;
+   131→    if (newEval.workflowId) body.workflowId = newEval.workflowId;
+   132→    await fetch("/api/evaluations", {
+   133→      method: "POST",
+   134→      headers: { "Content-Type": "application/json" },
+   135→      body: JSON.stringify(body),
+   136→    });
+   137→    toast.success("Evaluation created");
+   138→    setCreateOpen(false);
+   139→    setNewEval({ name: "", type: "quality", metric: "score", agentId: "", workflowId: "" });
+   140→    fetchEvals();
+   141→  };
+   142→
+   143→  const handleDelete = async (id: string) => {
+   144→    await fetch(`/api/evaluations/${id}`, { method: "DELETE" });
+   145→    toast.success("Evaluation deleted");
+   146→    if (selectedId === id) setSelectedId(null);
+   147→    fetchEvals();
+   148→  };
+   149→
+   150→  const handleRun = async (id: string) => {
+   151→    setRunning(id);
+   152→    try {
+   153→      const res = await fetch(`/api/evaluations/${id}/run`, { method: "POST" });
+   154→      const updated = await res.json();
+   155→      toast.success(`Evaluation complete — avg score: ${updated.avgScore}`);
+   156→      fetchEvals();
+   157→    } catch { toast.error("Evaluation failed"); }
+   158→    setRunning(null);
+   159→  };
+   160→
+   161→  const openEditDialog = () => {
+   162→    if (!selected) return;
+   163→    setEditForm({ name: selected.name, type: selected.type, metric: selected.metric });
+   164→    setEditOpen(true);
+   165→  };
+   166→
+   167→  const handleEdit = async () => {
+   168→    if (!selectedId) return;
+   169→    await fetch(`/api/evaluations/${selectedId}`, {
+   170→      method: "PUT",
+   171→      headers: { "Content-Type": "application/json" },
+   172→      body: JSON.stringify(editForm),
+   173→    });
+   174→    toast.success("Evaluation updated");
+   175→    setEditOpen(false);
+   176→    fetchEvals();
+   177→  };
+   178→
+   179→  const selected = evaluations.find((e) => e.id === selectedId);
+   180→
+   181→  const parsedResults = useMemo(() => {
+   182→    if (!selected?.results) return [];
+   183→    try {
+   184→      const r = JSON.parse(selected.results);
+   185→      return Array.isArray(r) ? r : [];
+   186→    } catch { return []; }
+   187→  }, [selected?.results]);
+   188→
+   189→  const chartData = useMemo(() => {
+   190→    return parsedResults
+   191→      .filter((r: Record<string, unknown>) => typeof r.score === "number")
+   192→      .map((r: Record<string, unknown>, i: number) => ({
+   193→        name: (r.criterion as string) || (r.query as string) || `Item ${i + 1}`,
+   194→        score: r.score as number,
+   195→      }));
+   196→  }, [parsedResults]);
+   197→
+   198→  return (
+   199→    <div className="space-y-6">
+   200→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+   201→        <div>
+   202→          <h2 className="text-2xl font-bold tracking-tight">Evaluations</h2>
+   203→          <p className="text-muted-foreground mt-1">Measure and track agent and workflow quality.</p>
+   204→        </div>
+   205→        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   206→          <DialogTrigger asChild>
+   207→            <Button className="gap-2"><Plus className="h-4 w-4" />New Evaluation</Button>
+   208→          </DialogTrigger>
+   209→          <DialogContent className="sm:max-w-md">
+   210→            <DialogHeader><DialogTitle>Create Evaluation</DialogTitle></DialogHeader>
+   211→            <div className="space-y-4 pt-2">
+   212→              <div className="space-y-2">
+   213→                <Label>Name</Label>
+   214→                <Input value={newEval.name} onChange={(e) => setNewEval({ ...newEval, name: e.target.value })} placeholder="Quality Assessment" />
+   215→              </div>
+   216→              <div className="grid grid-cols-2 gap-4">
+   217→                <div className="space-y-2">
+   218→                  <Label>Type</Label>
+   219→                  <Select value={newEval.type} onValueChange={(v) => setNewEval({ ...newEval, type: v })}>
+   220→                    <SelectTrigger><SelectValue /></SelectTrigger>
+   221→                    <SelectContent>
+   222→                      {["quality", "accuracy", "relevance", "coherence", "custom"].map((t) => (
+   223→                        <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+   224→                      ))}
+   225→                    </SelectContent>
+   226→                  </Select>
+   227→                </div>
+   228→                <div className="space-y-2">
+   229→                  <Label>Metric</Label>
+   230→                  <Select value={newEval.metric} onValueChange={(v) => setNewEval({ ...newEval, metric: v })}>
+   231→                    <SelectTrigger><SelectValue /></SelectTrigger>
+   232→                    <SelectContent>
+   233→                      <SelectItem value="score">Score (0-10)</SelectItem>
+   234→                      <SelectItem value="pass_fail">Pass / Fail</SelectItem>
+   235→                      <SelectItem value="ranking">Ranking</SelectItem>
+   236→                    </SelectContent>
+   237→                  </Select>
+   238→                </div>
+   239→              </div>
+   240→              {agents.length > 0 && (
+   241→                <div className="space-y-2">
+   242→                  <Label className="flex items-center gap-1.5"><User className="h-3.5 w-3.5" />Connect Agent (optional)</Label>
+   243→                  <Select value={newEval.agentId} onValueChange={(v) => setNewEval({ ...newEval, agentId: v })}>
+   244→                    <SelectTrigger><SelectValue placeholder="Select agent..." /></SelectTrigger>
+   245→                    <SelectContent>
+   246→                      {agents.map((a) => (
+   247→                        <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+   248→                      ))}
+   249→                    </SelectContent>
+   250→                  </Select>
+   251→                </div>
+   252→              )}
+   253→              {workflows.length > 0 && (
+   254→                <div className="space-y-2">
+   255→                  <Label className="flex items-center gap-1.5"><GitBranch className="h-3.5 w-3.5" />Connect Workflow (optional)</Label>
+   256→                  <Select value={newEval.workflowId} onValueChange={(v) => setNewEval({ ...newEval, workflowId: v })}>
+   257→                    <SelectTrigger><SelectValue placeholder="Select workflow..." /></SelectTrigger>
+   258→                    <SelectContent>
+   259→                      {workflows.map((w) => (
+   260→                        <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+   261→                      ))}
+   262→                    </SelectContent>
+   263→                  </Select>
+   264→                </div>
+   265→              )}
+   266→              <Button onClick={handleCreate} className="w-full" disabled={!newEval.name}>Create</Button>
+   267→            </div>
+   268→          </DialogContent>
+   269→        </Dialog>
+   270→      </div>
+   271→
+   272→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   273→        {/* Evaluation List */}
+   274→        <div className="lg:col-span-1">
+   275→          <Card>
+   276→            <CardHeader className="pb-3">
+   277→              <div className="flex items-center justify-between">
+   278→                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">All Evaluations</CardTitle>
+   279→                <Badge variant="secondary" className="text-xs font-normal">{evaluations.length}</Badge>
+   280→              </div>
+   281→            </CardHeader>
+   282→            <CardContent className="p-2">
+   283→              {loading ? (
+   284→                <div className="space-y-2 p-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}</div>
+   285→              ) : evaluations.length === 0 ? (
+   286→                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+   287→                  <div className="p-3 rounded-2xl bg-muted/60 mb-3">
+   288→                    <BarChart className="h-8 w-8 text-muted-foreground" />
+   289→                  </div>
+   290→                  <p className="text-sm font-medium text-muted-foreground">No evaluations yet</p>
+   291→                  <p className="text-xs text-muted-foreground/70 mt-1">Create your first evaluation to measure quality</p>
+   292→                </div>
+   293→              ) : (
+   294→                <ScrollArea className="max-h-[520px]">
+   295→                  <div className="space-y-1 p-1">
+   296→                    <AnimatePresence mode="popLayout">
+   297→                      {evaluations.map((ev, idx) => {
+   298→                        const scoreColor = ev.avgScore > 0 ? getScoreColor(ev.avgScore) : "";
+   299→                        return (
+   300→                          <motion.button
+   301→                            key={ev.id}
+   302→                            initial={{ opacity: 0, y: 8 }}
+   303→                            animate={{ opacity: 1, y: 0 }}
+   304→                            exit={{ opacity: 0, y: -8 }}
+   305→                            transition={{ duration: 0.2, delay: idx * 0.03 }}
+   306→                            onClick={() => setSelectedId(ev.id === selectedId ? null : ev.id)}
+   307→                            className={`w-full text-left p-3 rounded-lg transition-all duration-200 hover:bg-muted/60 ${selectedId === ev.id ? "bg-muted border border-border shadow-sm" : ""}`}
+   308→                          >
+   309→                            <div className="flex items-center justify-between mb-1.5">
+   310→                              <p className="font-medium text-sm truncate">{ev.name}</p>
+   311→                              <BarChart3 className="h-4 w-4 text-muted-foreground/50 flex-shrink-0 ml-2" />
+   312→                            </div>
+   313→                            <div className="flex items-center gap-2 mb-2">
+   314→                              <Badge className={`${TYPE_COLORS[ev.type]} text-[10px]`}>{ev.type}</Badge>
+   315→                              <Badge variant="outline" className="text-[10px]">{ev.metric}</Badge>
+   316→                            </div>
+   317→                            {ev.avgScore > 0 && (
+   318→                              <div className="flex items-center gap-3">
+   319→                                <span className={`text-lg font-bold tabular-nums ${scoreColor}`}>
+   320→                                  {ev.avgScore}
+   321→                                </span>
+   322→                                <div className="flex-1">
+   323→                                  <Progress
+   324→                                    value={ev.metric === "pass_fail" ? ev.avgScore * 100 : ev.avgScore * 10}
+   325→                                    className="h-1.5"
+   326→                                  />
+   327→                                </div>
+   328→                              </div>
+   329→                            )}
+   330→                          </motion.button>
+   331→                        );
+   332→                      })}
+   333→                    </AnimatePresence>
+   334→                  </div>
+   335→                </ScrollArea>
+   336→              )}
+   337→            </CardContent>
+   338→          </Card>
+   339→        </div>
+   340→
+   341→        {/* Detail Panel */}
+   342→        <div className="lg:col-span-2">
+   343→          <AnimatePresence mode="wait">
+   344→            {selected ? (
+   345→              <motion.div
+   346→                key={selected.id}
+   347→                initial={{ opacity: 0, x: 12 }}
+   348→                animate={{ opacity: 1, x: 0 }}
+   349→                exit={{ opacity: 0, x: -12 }}
+   350→                transition={{ duration: 0.25 }}
+   351→              >
+   352→                <Card>
+   353→                  <CardHeader>
+   354→                    <div className="flex items-start justify-between gap-4">
+   355→                      <div className="min-w-0">
+   356→                        <CardTitle className="flex items-center gap-2.5 flex-wrap">
+   357→                          <div className="p-1.5 rounded-lg bg-muted/60 flex-shrink-0">
+   358→                            <Target className="h-5 w-5 text-muted-foreground" />
+   359→                          </div>
+   360→                          {selected.name}
+   361→                          {selected.avgScore > 0 && (
+   362→                            <Badge className={`${getScoreBadgeStyle(selected.avgScore)} text-sm px-2.5 py-0.5 font-bold tabular-nums gap-1`}>
+   363→                              <TrendingUp className="h-3.5 w-3.5" />
+   364→                              {selected.avgScore}
+   365→                            </Badge>
+   366→                          )}
+   367→                        </CardTitle>
+   368→                        <CardDescription className="mt-2 flex items-center gap-2 flex-wrap">
+   369→                          <Badge className={`${TYPE_COLORS[selected.type]} text-xs`}>{selected.type}</Badge>
+   370→                          <span className="text-muted-foreground">using</span>
+   371→                          <Badge variant="outline" className="text-xs">{selected.metric}</Badge>
+   372→                          {selected.agentId && (
+   373→                            <Badge variant="outline" className="text-xs gap-1"><User className="h-3 w-3" />Agent</Badge>
+   374→                          )}
+   375→                          {selected.workflowId && (
+   376→                            <Badge variant="outline" className="text-xs gap-1"><GitBranch className="h-3 w-3" />Workflow</Badge>
+   377→                          )}
+   378→                        </CardDescription>
+   379→                      </div>
+   380→                      <div className="flex items-center gap-1 flex-shrink-0">
+   381→                        <Tooltip>
+   382→                          <TooltipTrigger asChild>
+   383→                            <Button variant="ghost" size="icon" onClick={openEditDialog} className="text-muted-foreground hover:text-foreground">
+   384→                              <Edit className="h-4 w-4" />
+   385→                            </Button>
+   386→                          </TooltipTrigger>
+   387→                          <TooltipContent>Edit evaluation</TooltipContent>
+   388→                        </Tooltip>
+   389→                        <Button
+   390→                          size="sm"
+   391→                          onClick={() => handleRun(selected.id)}
+   392→                          disabled={running === selected.id}
+   393→                          className="gap-2"
+   394→                        >
+   395→                          {running === selected.id ? (
+   396→                            <><Zap className="h-4 w-4 animate-pulse" />Running</>
+   397→                          ) : (
+   398→                            <><Play className="h-4 w-4" />Run</>
+   399→                          )}
+   400→                        </Button>
+   401→                        <Tooltip>
+   402→                          <TooltipTrigger asChild>
+   403→                            <Button variant="ghost" size="icon" onClick={() => handleDelete(selected.id)} className="text-muted-foreground hover:text-destructive">
+   404→                              <Trash2 className="h-4 w-4" />
+   405→                            </Button>
+   406→                          </TooltipTrigger>
+   407→                          <TooltipContent>Delete</TooltipContent>
+   408→                        </Tooltip>
+   409→                      </div>
+   410→                    </div>
+   411→                  </CardHeader>
+   412→                  <CardContent className="space-y-5">
+   413→                    {/* Score Overview */}
+   414→                    {selected.avgScore > 0 && (
+   415→                      <motion.div
+   416→                        initial={{ opacity: 0, y: 8 }}
+   417→                        animate={{ opacity: 1, y: 0 }}
+   418→                        transition={{ duration: 0.3 }}
+   419→                        className="p-5 rounded-xl bg-muted/40 border border-border/50"
+   420→                      >
+   421→                        <div className="flex items-center justify-between mb-3">
+   422→                          <p className="text-sm font-medium flex items-center gap-2">
+   423→                            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+   424→                            Average Score
+   425→                          </p>
+   426→                          <p className={`text-3xl font-bold tabular-nums ${getScoreColor(selected.avgScore)}`}>
+   427→                            {selected.avgScore}
+   428→                            <span className="text-sm font-normal text-muted-foreground ml-1">
+   429→                              /{selected.metric === "pass_fail" ? "1" : "10"}
+   430→                            </span>
+   431→                          </p>
+   432→                        </div>
+   433→                        <div className="relative h-3 bg-muted rounded-full overflow-hidden">
+   434→                          <motion.div
+   435→                            initial={{ width: 0 }}
+   436→                            animate={{ width: `${selected.metric === "pass_fail" ? selected.avgScore * 100 : selected.avgScore * 10}%` }}
+   437→                            transition={{ duration: 0.8, ease: "easeOut" }}
+   438→                            className={`h-full rounded-full ${getScoreBgColor(selected.avgScore)}`}
+   439→                          />
+   440→                        </div>
+   441→                        <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
+   442→                          <span>Poor</span>
+   443→                          <span>Average</span>
+   444→                          <span>Excellent</span>
+   445→                        </div>
+   446→                      </motion.div>
+   447→                    )}
+   448→
+   449→                    {/* Bar Chart */}
+   450→                    {chartData.length > 0 && (
+   451→                      <motion.div
+   452→                        initial={{ opacity: 0, y: 8 }}
+   453→                        animate={{ opacity: 1, y: 0 }}
+   454→                        transition={{ duration: 0.3, delay: 0.1 }}
+   455→                        className="p-4 rounded-xl bg-muted/30 border border-border/50"
+   456→                      >
+   457→                        <p className="text-sm font-medium mb-3 flex items-center gap-2">
+   458→                          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+   459→                          Score Distribution
+   460→                        </p>
+   461→                        <ChartContainer config={chartConfig} className="h-[200px] w-full">
+   462→                          <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+   463→                            <XAxis type="number" domain={[0, 10]} tick={{ fontSize: 11 }} />
+   464→                            <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
+   465→                            <ChartTooltip content={<ChartTooltipContent />} />
+   466→                            <Bar dataKey="score" radius={[0, 4, 4, 0]} maxBarSize={24}>
+   467→                              {chartData.map((entry, index) => (
+   468→                                <Cell key={`cell-${index}`} fill={getScoreBarColor(entry.score)} />
+   469→                              ))}
+   470→                            </Bar>
+   471→                          </BarChart>
+   472→                        </ChartContainer>
+   473→                      </motion.div>
+   474→                    )}
+   475→
+   476→                    {/* Results Breakdown */}
+   477→                    {(() => {
+   478→                      if (parsedResults.length === 0) return (
+   479→                        <motion.div
+   480→                          initial={{ opacity: 0 }}
+   481→                          animate={{ opacity: 1 }}
+   482→                          className="flex flex-col items-center justify-center py-10 text-center"
+   483→                        >
+   484→                          <div className="p-3 rounded-2xl bg-muted/60 mb-3">
+   485→                            <Target className="h-8 w-8 text-muted-foreground/50" />
+   486→                          </div>
+   487→                          <p className="text-sm text-muted-foreground font-medium">No results yet</p>
+   488→                          <p className="text-xs text-muted-foreground/60 mt-1">Click &quot;Run&quot; to execute this evaluation</p>
+   489→                        </motion.div>
+   490→                      );
+   491→
+   492→                      return (
+   493→                        <motion.div
+   494→                          initial={{ opacity: 0, y: 8 }}
+   495→                          animate={{ opacity: 1, y: 0 }}
+   496→                          transition={{ duration: 0.3, delay: 0.2 }}
+   497→                        >
+   498→                          <p className="text-sm font-medium mb-3 flex items-center gap-2">
+   499→                            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+   500→                            Results Breakdown
+   501→                            <Badge variant="secondary" className="text-xs font-normal">{parsedResults.length}</Badge>
+   502→                          </p>
+   503→                          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+   504→                            {parsedResults.map((r: Record<string, unknown>, i: number) => {
+   505→                              const score = typeof r.score === "number" ? r.score as number : null;
+   506→                              const passed = r.passed as boolean | undefined;
+   507→                              const name = (r.criterion as string) || (r.query as string) || `Item ${i + 1}`;
+   508→                              const notes = r.notes as string | undefined;
+   509→                              const hasScore = score !== null;
+   510→                              const displayScore = hasScore ? score : (r.relevance !== undefined ? Math.round((r.relevance as number) * 100) / 10 : null);
+   511→
+   512→                              return (
+   513→                                <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-border/60 bg-card hover:bg-muted/30 transition-colors">
+   514→                                  <div className="pt-0.5 flex-shrink-0">
+   515→                                    {passed !== undefined ? (
+   516→                                      passed ? (
+   517→                                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+   518→                                      ) : (
+   519→                                        <XCircle className="h-5 w-5 text-rose-500" />
+   520→                                      )
+   521→                                    ) : displayScore !== null ? (
+   522→                                      <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${getScoreBgColor(displayScore)}`}>
+   523→                                        {displayScore}
+   524→                                      </div>
+   525→                                    ) : (
+   526→                                      <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center">
+   527→                                        <span className="text-[10px] text-muted-foreground">—</span>
+   528→                                      </div>
+   529→                                    )}
+   530→                                  </div>
+   531→                                  <div className="flex-1 min-w-0">
+   532→                                    <div className="flex items-center justify-between gap-2 mb-1">
+   533→                                      <p className="text-sm font-medium truncate">{name}</p>
+   534→                                      {displayScore !== null && (
+   535→                                        <div className="flex items-center gap-2 flex-shrink-0">
+   536→                                          <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
+   537→                                            <div
+   538→                                              className={`h-full rounded-full transition-all duration-500 ${getScoreBgColor(displayScore)}`}
+   539→                                              style={{ width: `${displayScore * 10}%` }}
+   540→                                            />
+   541→                                          </div>
+   542→                                          <span className={`text-sm font-bold tabular-nums ${getScoreColor(displayScore)}`}>
+   543→                                            {displayScore}
+   544→                                          </span>
+   545→                                        </div>
+   546→                                      )}
+   547→                                    </div>
+   548→                                    {notes && (
+   549→                                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notes}</p>
+   550→                                    )}
+   551→                                  </div>
+   552→                                </div>
+   553→                              );
+   554→                            })}
+   555→                          </div>
+   556→                        </motion.div>
+   557→                      );
+   558→                    })()}
+   559→
+   560→                    <Separator />
+   561→                    <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+   562→                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Created {formatDate(selected.createdAt)}</span>
+   563→                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Updated {formatDate(selected.updatedAt)}</span>
+   564→                    </div>
+   565→                  </CardContent>
+   566→                </Card>
+   567→              </motion.div>
+   568→            ) : (
+   569→              <motion.div
+   570→                key="empty"
+   571→                initial={{ opacity: 0, y: 8 }}
+   572→                animate={{ opacity: 1, y: 0 }}
+   573→                exit={{ opacity: 0, y: -8 }}
+   574→              >
+   575→                <Card className="flex flex-col items-center justify-center h-72 border-dashed">
+   576→                  <div className="p-4 rounded-2xl bg-muted/60 mb-4">
+   577→                    <Inbox className="h-10 w-10 text-muted-foreground/50" />
+   578→                  </div>
+   579→                  <p className="text-muted-foreground font-medium">Select an evaluation to view details</p>
+   580→                  <p className="text-xs text-muted-foreground/60 mt-1">Choose from the list or create a new evaluation</p>
+   581→                </Card>
+   582→              </motion.div>
+   583→            )}
+   584→          </AnimatePresence>
+   585→        </div>
+   586→      </div>
+   587→
+   588→      {/* Edit Dialog */}
+   589→      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+   590→        <DialogContent className="sm:max-w-md">
+   591→          <DialogHeader><DialogTitle>Edit Evaluation</DialogTitle></DialogHeader>
+   592→          <div className="space-y-4 pt-2">
+   593→            <div className="space-y-2">
+   594→              <Label>Name</Label>
+   595→              <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+   596→            </div>
+   597→            <div className="grid grid-cols-2 gap-4">
+   598→              <div className="space-y-2">
+   599→                <Label>Type</Label>
+   600→                <Select value={editForm.type} onValueChange={(v) => setEditForm({ ...editForm, type: v })}>
+   601→                  <SelectTrigger><SelectValue /></SelectTrigger>
+   602→                  <SelectContent>
+   603→                    {["quality", "accuracy", "relevance", "coherence", "custom"].map((t) => (
+   604→                      <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+   605→                    ))}
+   606→                  </SelectContent>
+   607→                </Select>
+   608→              </div>
+   609→              <div className="space-y-2">
+   610→                <Label>Metric</Label>
+   611→                <Select value={editForm.metric} onValueChange={(v) => setEditForm({ ...editForm, metric: v })}>
+   612→                  <SelectTrigger><SelectValue /></SelectTrigger>
+   613→                  <SelectContent>
+   614→                    <SelectItem value="score">Score (0-10)</SelectItem>
+   615→                    <SelectItem value="pass_fail">Pass / Fail</SelectItem>
+   616→                    <SelectItem value="ranking">Ranking</SelectItem>
+   617→                  </SelectContent>
+   618→                </Select>
+   619→              </div>
+   620→            </div>
+   621→            <DialogFooter className="gap-2 sm:gap-0">
+   622→              <DialogClose asChild>
+   623→                <Button variant="outline">Cancel</Button>
+   624→              </DialogClose>
+   625→              <Button onClick={handleEdit} disabled={!editForm.name}>Save Changes</Button>
+   626→            </DialogFooter>
+   627→          </div>
+   628→        </DialogContent>
+   629→      </Dialog>
+   630→    </div>
+   631→  );
+   632→}

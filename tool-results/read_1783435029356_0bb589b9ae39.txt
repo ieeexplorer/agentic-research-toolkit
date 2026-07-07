@@ -1,0 +1,1518 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback, useRef } from "react";
+     4→import { useToolkitStore } from "@/hooks/use-toolkit-store";
+     5→import {
+     6→  Card,
+     7→  CardContent,
+     8→  CardHeader,
+     9→  CardTitle,
+    10→  CardDescription,
+    11→} from "@/components/ui/card";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Badge } from "@/components/ui/badge";
+    14→import { Input } from "@/components/ui/input";
+    15→import { Textarea } from "@/components/ui/textarea";
+    16→import { Label } from "@/components/ui/label";
+    17→import {
+    18→  Select,
+    19→  SelectContent,
+    20→  SelectItem,
+    21→  SelectTrigger,
+    22→  SelectValue,
+    23→} from "@/components/ui/select";
+    24→import {
+    25→  Dialog,
+    26→  DialogContent,
+    27→  DialogHeader,
+    28→  DialogTitle,
+    29→  DialogTrigger,
+    30→} from "@/components/ui/dialog";
+    31→import {
+    32→  Tooltip,
+    33→  TooltipContent,
+    34→  TooltipProvider,
+    35→  TooltipTrigger,
+    36→} from "@/components/ui/tooltip";
+    37→import { Separator } from "@/components/ui/separator";
+    38→import { ScrollArea } from "@/components/ui/scroll-area";
+    39→import { Skeleton } from "@/components/ui/skeleton";
+    40→import {
+    41→  GitBranch,
+    42→  Plus,
+    43→  Play,
+    44→  Trash2,
+    45→  ChevronRight,
+    46→  Zap,
+    47→  Clock,
+    48→  CircleDot,
+    49→  Circle,
+    50→  CheckCircle2,
+    51→  XCircle,
+    52→  Loader2,
+    53→  Box,
+    54→  ArrowRight,
+    55→  Workflow as WorkflowIcon,
+    56→  FileText,
+    57→  Layers,
+    58→} from "lucide-react";
+    59→import { toast } from "sonner";
+    60→
+    61→// ─── Data Types ───────────────────────────────────────────────────────────────
+    62→
+    63→interface Workflow {
+    64→  id: string;
+    65→  name: string;
+    66→  description: string;
+    67→  status: string;
+    68→  _count?: { nodes: number; connections: number; executions: number };
+    69→  executions?: WorkflowExecution[];
+    70→  nodes?: WorkflowNode[];
+    71→  connections?: WorkflowConnection[];
+    72→}
+    73→
+    74→interface WorkflowNode {
+    75→  id: string;
+    76→  name: string;
+    77→  nodeType: string;
+    78→  positionX: number;
+    79→  positionY: number;
+    80→  agentId?: string | null;
+    81→  toolId?: string | null;
+    82→  agent?: { name: string; type: string } | null;
+    83→  tool?: { name: string; type: string } | null;
+    84→}
+    85→
+    86→interface WorkflowConnection {
+    87→  id: string;
+    88→  sourceNodeId: string;
+    89→  targetNodeId: string;
+    90→  label: string;
+    91→}
+    92→
+    93→interface WorkflowExecution {
+    94→  id: string;
+    95→  input: string;
+    96→  output: string;
+    97→  status: string;
+    98→  duration: number;
+    99→  nodeResults: string;
+   100→  createdAt: string;
+   101→}
+   102→
+   103→interface AgentOption {
+   104→  id: string;
+   105→  name: string;
+   106→  type: string;
+   107→}
+   108→
+   109→interface ToolOption {
+   110→  id: string;
+   111→  name: string;
+   112→  type: string;
+   113→}
+   114→
+   115→interface NodeResult {
+   116→  nodeId: string;
+   117→  nodeName?: string;
+   118→  status: string;
+   119→  duration?: number;
+   120→  output?: string;
+   121→}
+   122→
+   123→// ─── Constants ────────────────────────────────────────────────────────────────
+   124→
+   125→const NODE_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+   126→  agent: {
+   127→    bg: "fill-emerald-100 dark:fill-emerald-950",
+   128→    border: "stroke-emerald-400 dark:stroke-emerald-600",
+   129→    text: "fill-emerald-700 dark:fill-emerald-300",
+   130→    dot: "#10b981",
+   131→  },
+   132→  tool: {
+   133→    bg: "fill-amber-100 dark:fill-amber-950",
+   134→    border: "stroke-amber-400 dark:stroke-amber-600",
+   135→    text: "fill-amber-700 dark:fill-amber-300",
+   136→    dot: "#f59e0b",
+   137→  },
+   138→  condition: {
+   139→    bg: "fill-violet-100 dark:fill-violet-950",
+   140→    border: "stroke-violet-400 dark:stroke-violet-600",
+   141→    text: "fill-violet-700 dark:fill-violet-300",
+   142→    dot: "#8b5cf6",
+   143→  },
+   144→  transform: {
+   145→    bg: "fill-teal-100 dark:fill-teal-950",
+   146→    border: "stroke-teal-400 dark:stroke-teal-600",
+   147→    text: "fill-teal-700 dark:fill-teal-300",
+   148→    dot: "#14b8a6",
+   149→  },
+   150→  output: {
+   151→    bg: "fill-rose-100 dark:fill-rose-950",
+   152→    border: "stroke-rose-400 dark:stroke-rose-600",
+   153→    text: "fill-rose-700 dark:fill-rose-300",
+   154→    dot: "#f43f5e",
+   155→  },
+   156→};
+   157→
+   158→const NODE_TYPE_OPTIONS = [
+   159→  { value: "agent", label: "Agent", icon: CircleDot },
+   160→  { value: "tool", label: "Tool", icon: Box },
+   161→  { value: "condition", label: "Condition", icon: GitBranch },
+   162→  { value: "transform", label: "Transform", icon: Layers },
+   163→  { value: "output", label: "Output", icon: FileText },
+   164→];
+   165→
+   166→const STATUS_CYCLE: Record<string, { next: string; variant: "default" | "secondary" | "outline" }> = {
+   167→  draft: { next: "active", variant: "secondary" },
+   168→  active: { next: "archived", variant: "default" },
+   169→  archived: { next: "draft", variant: "outline" },
+   170→};
+   171→
+   172→const STATUS_BADGE_CLASSES: Record<string, string> = {
+   173→  draft: "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700",
+   174→  active: "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-300 dark:hover:bg-emerald-800/60 border-emerald-200 dark:border-emerald-800",
+   175→  archived: "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-300 dark:hover:bg-amber-800/60 border-amber-200 dark:border-amber-800",
+   176→};
+   177→
+   178→// ─── Helpers ──────────────────────────────────────────────────────────────────
+   179→
+   180→function timeAgo(d: string) {
+   181→  const mins = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
+   182→  if (mins < 1) return "just now";
+   183→  if (mins < 60) return `${mins}m ago`;
+   184→  const h = Math.floor(mins / 60);
+   185→  if (h < 24) return `${h}h ago`;
+   186→  return `${Math.floor(h / 24)}d ago`;
+   187→}
+   188→
+   189→function formatDuration(ms: number): string {
+   190→  if (ms < 1000) return `${ms}ms`;
+   191→  return `${(ms / 1000).toFixed(1)}s`;
+   192→}
+   193→
+   194→function parseNodeResults(raw: string): NodeResult[] {
+   195→  try {
+   196→    const parsed = JSON.parse(raw);
+   197→    if (Array.isArray(parsed)) return parsed;
+   198→    return [];
+   199→  } catch {
+   200→    return [];
+   201→  }
+   202→}
+   203→
+   204→// ─── Component ────────────────────────────────────────────────────────────────
+   205→
+   206→export function WorkflowsView() {
+   207→  const { selectedWorkflowId, setSelectedWorkflowId, refreshing } =
+   208→    useToolkitStore();
+   209→
+   210→  // ── State ──
+   211→  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+   212→  const [selected, setSelected] = useState<Workflow | null>(null);
+   213→  const [loading, setLoading] = useState(true);
+   214→  const [executing, setExecuting] = useState(false);
+   215→  const [createOpen, setCreateOpen] = useState(false);
+   216→  const [newWf, setNewWf] = useState({ name: "", description: "" });
+   217→  const [execInput, setExecInput] = useState("");
+   218→  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+   219→
+   220→  // Node creation dialog state
+   221→  const [addNodeOpen, setAddNodeOpen] = useState(false);
+   222→  const [newNodeName, setNewNodeName] = useState("");
+   223→  const [newNodeType, setNewNodeType] = useState("");
+   224→  const [newNodeAgentId, setNewNodeAgentId] = useState("");
+   225→  const [newNodeToolId, setNewNodeToolId] = useState("");
+   226→  const [agents, setAgents] = useState<AgentOption[]>([]);
+   227→  const [tools, setTools] = useState<ToolOption[]>([]);
+   228→  const [agentsLoading, setAgentsLoading] = useState(false);
+   229→  const [toolsLoading, setToolsLoading] = useState(false);
+   230→  const [creatingNode, setCreatingNode] = useState(false);
+   231→
+   232→  // Status toggle
+   233→  const [togglingStatus, setTogglingStatus] = useState(false);
+   234→
+   235→  const svgRef = useRef<SVGSVGElement>(null);
+   236→
+   237→  // ── Fetching ──
+   238→
+   239→  const fetchWorkflows = useCallback(async () => {
+   240→    setLoading(true);
+   241→    try {
+   242→      const res = await fetch("/api/workflows");
+   243→      if (res.ok) setWorkflows(await res.json());
+   244→    } catch {
+   245→      toast.error("Failed to load workflows");
+   246→    }
+   247→    setLoading(false);
+   248→  }, []);
+   249→
+   250→  useEffect(() => {
+   251→    fetchWorkflows();
+   252→  }, [fetchWorkflows, refreshing]);
+   253→
+   254→  useEffect(() => {
+   255→    if (selectedWorkflowId) {
+   256→      fetch(`/api/workflows/${selectedWorkflowId}`)
+   257→        .then((r) => r.json())
+   258→        .then((data) => setSelected(data))
+   259→        .catch(() => setSelected(null));
+   260→    } else {
+   261→      setSelected(null);
+   262→    }
+   263→  }, [selectedWorkflowId, refreshing]);
+   264→
+   265→  // Fetch agents/tools when add node dialog opens and type changes
+   266→  const fetchAgents = useCallback(async () => {
+   267→    setAgentsLoading(true);
+   268→    try {
+   269→      const res = await fetch("/api/agents");
+   270→      if (res.ok) setAgents(await res.json());
+   271→    } catch {
+   272→      /* ignore */
+   273→    }
+   274→    setAgentsLoading(false);
+   275→  }, []);
+   276→
+   277→  const fetchTools = useCallback(async () => {
+   278→    setToolsLoading(true);
+   279→    try {
+   280→      const res = await fetch("/api/tools");
+   281→      if (res.ok) setTools(await res.json());
+   282→    } catch {
+   283→      /* ignore */
+   284→    }
+   285→    setToolsLoading(false);
+   286→  }, []);
+   287→
+   288→  useEffect(() => {
+   289→    if (addNodeOpen && newNodeType === "agent" && agents.length === 0) {
+   290→      fetchAgents();
+   291→    }
+   292→  }, [addNodeOpen, newNodeType, agents.length, fetchAgents]);
+   293→
+   294→  useEffect(() => {
+   295→    if (addNodeOpen && newNodeType === "tool" && tools.length === 0) {
+   296→      fetchTools();
+   297→    }
+   298→  }, [addNodeOpen, newNodeType, tools.length, fetchTools]);
+   299→
+   300→  // ── Handlers ──
+   301→
+   302→  const handleCreate = async () => {
+   303→    if (!newWf.name.trim()) return;
+   304→    try {
+   305→      await fetch("/api/workflows", {
+   306→        method: "POST",
+   307→        headers: { "Content-Type": "application/json" },
+   308→        body: JSON.stringify(newWf),
+   309→      });
+   310→      toast.success("Workflow created");
+   311→      setCreateOpen(false);
+   312→      setNewWf({ name: "", description: "" });
+   313→      fetchWorkflows();
+   314→    } catch {
+   315→      toast.error("Failed to create workflow");
+   316→    }
+   317→  };
+   318→
+   319→  const handleDelete = async (id: string) => {
+   320→    try {
+   321→      await fetch(`/api/workflows/${id}`, { method: "DELETE" });
+   322→      toast.success("Workflow deleted");
+   323→      if (selectedWorkflowId === id) setSelectedWorkflowId(null);
+   324→      fetchWorkflows();
+   325→    } catch {
+   326→      toast.error("Failed to delete workflow");
+   327→    }
+   328→  };
+   329→
+   330→  const handleDeleteNode = async (nodeId: string) => {
+   331→    if (!selectedWorkflowId) return;
+   332→    try {
+   333→      await fetch(`/api/workflows/${selectedWorkflowId}/nodes/${nodeId}`, {
+   334→        method: "DELETE",
+   335→      });
+   336→      toast.success("Node deleted");
+   337→      // Re-fetch selected workflow
+   338→      fetch(`/api/workflows/${selectedWorkflowId}`)
+   339→        .then((r) => r.json())
+   340→        .then(setSelected);
+   341→      fetchWorkflows();
+   342→    } catch {
+   343→      toast.error("Failed to delete node");
+   344→    }
+   345→  };
+   346→
+   347→  const handleExecute = async () => {
+   348→    if (!selectedWorkflowId) return;
+   349→    setExecuting(true);
+   350→    try {
+   351→      const res = await fetch(
+   352→        `/api/workflows/${selectedWorkflowId}/execute`,
+   353→        {
+   354→          method: "POST",
+   355→          headers: { "Content-Type": "application/json" },
+   356→          body: JSON.stringify({ input: execInput || "Run workflow" }),
+   357→        }
+   358→      );
+   359→      const exec = await res.json();
+   360→      toast.success(`Workflow completed in ${formatDuration(exec.duration)}`);
+   361→      setExecInput("");
+   362→      fetch(`/api/workflows/${selectedWorkflowId}`)
+   363→        .then((r) => r.json())
+   364→        .then(setSelected);
+   365→      fetchWorkflows();
+   366→    } catch {
+   367→      toast.error("Execution failed");
+   368→    }
+   369→    setExecuting(false);
+   370→  };
+   371→
+   372→  const handleStatusToggle = async () => {
+   373→    if (!selected) return;
+   374→    const cycle = STATUS_CYCLE[selected.status];
+   375→    if (!cycle) return;
+   376→    setTogglingStatus(true);
+   377→    try {
+   378→      await fetch(`/api/workflows/${selected.id}`, {
+   379→        method: "PUT",
+   380→        headers: { "Content-Type": "application/json" },
+   381→        body: JSON.stringify({ status: cycle.next }),
+   382→      });
+   383→      toast.success(`Status changed to ${cycle.next}`);
+   384→      fetchWorkflows();
+   385→      fetch(`/api/workflows/${selected.id}`)
+   386→        .then((r) => r.json())
+   387→        .then(setSelected);
+   388→    } catch {
+   389→      toast.error("Failed to update status");
+   390→    }
+   391→    setTogglingStatus(false);
+   392→  };
+   393→
+   394→  const handleCreateNode = async () => {
+   395→    if (!selectedWorkflowId || !newNodeName.trim() || !newNodeType) return;
+   396→    setCreatingNode(true);
+   397→    try {
+   398→      // Auto-position: right of existing nodes
+   399→      const maxX = selected?.nodes?.length
+   400→        ? Math.max(...selected.nodes.map((n) => n.positionX))
+   401→        : 0;
+   402→      const nodeW = 160;
+   403→      const gapX = 80;
+   404→      const posX = maxX > 0 ? maxX + nodeW + gapX : 0;
+   405→
+   406→      // Vertical center
+   407→      const posY = 40;
+   408→
+   409→      const body: Record<string, unknown> = {
+   410→        name: newNodeName.trim(),
+   411→        nodeType: newNodeType,
+   412→        positionX: posX,
+   413→        positionY: posY,
+   414→      };
+   415→
+   416→      if (newNodeType === "agent" && newNodeAgentId) {
+   417→        body.agentId = newNodeAgentId;
+   418→      }
+   419→      if (newNodeType === "tool" && newNodeToolId) {
+   420→        body.toolId = newNodeToolId;
+   421→      }
+   422→
+   423→      await fetch(`/api/workflows/${selectedWorkflowId}/nodes`, {
+   424→        method: "POST",
+   425→        headers: { "Content-Type": "application/json" },
+   426→        body: JSON.stringify(body),
+   427→      });
+   428→
+   429→      toast.success("Node added to workflow");
+   430→      setAddNodeOpen(false);
+   431→      resetNodeForm();
+   432→
+   433→      // Re-fetch
+   434→      fetch(`/api/workflows/${selectedWorkflowId}`)
+   435→        .then((r) => r.json())
+   436→        .then(setSelected);
+   437→      fetchWorkflows();
+   438→    } catch {
+   439→      toast.error("Failed to create node");
+   440→    }
+   441→    setCreatingNode(false);
+   442→  };
+   443→
+   444→  const resetNodeForm = () => {
+   445→    setNewNodeName("");
+   446→    setNewNodeType("");
+   447→    setNewNodeAgentId("");
+   448→    setNewNodeToolId("");
+   449→  };
+   450→
+   451→  // ─── SVG Graph ──────────────────────────────────────────────────────────────
+   452→
+   453→  const renderGraph = () => {
+   454→    if (!selected?.nodes || selected.nodes.length === 0) return null;
+   455→
+   456→    const nodeMap = new Map(selected.nodes.map((n) => [n.id, n]));
+   457→    const nodeW = 160;
+   458→    const nodeH = 72;
+   459→    const padX = 50;
+   460→    const padY = 30;
+   461→    const svgW =
+   462→      Math.max(...selected.nodes.map((n) => n.positionX)) +
+   463→      nodeW +
+   464→      padX * 2;
+   465→    const svgH =
+   466→      Math.max(...selected.nodes.map((n) => n.positionY)) +
+   467→      nodeH +
+   468→      padY * 2 +
+   469→      60; // extra space for legend
+   470→
+   471→    return (
+   472→      <div className="relative rounded-xl border border-border overflow-hidden">
+   473→        <svg
+   474→          ref={svgRef}
+   475→          viewBox={`0 0 ${svgW} ${svgH}`}
+   476→          className="w-full h-auto min-h-[240px]"
+   477→          style={{
+   478→            background:
+   479→              "linear-gradient(135deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.3) 50%, hsl(var(--background)) 100%)",
+   480→          }}
+   481→        >
+   482→          <defs>
+   483→            {/* Animated dash marker */}
+   484→            <marker
+   485→              id="arrowhead-animated"
+   486→              markerWidth="10"
+   487→              markerHeight="7"
+   488→              refX="9"
+   489→              refY="3.5"
+   490→              orient="auto"
+   491→            >
+   492→              <polygon
+   493→                points="0 0, 10 3.5, 0 7"
+   494→                className="fill-muted-foreground"
+   495→                opacity="0.7"
+   496→              />
+   497→            </marker>
+   498→
+   499→            {/* Shadow filters for each node type */}
+   500→            {Object.entries(NODE_COLORS).map(([type]) => (
+   501→              <filter
+   502→                key={`shadow-${type}`}
+   503→                id={`shadow-${type}`}
+   504→                x="-20%"
+   505→                y="-20%"
+   506→                width="140%"
+   507→                height="140%"
+   508→              >
+   509→                <feDropShadow
+   510→                  dx="0"
+   511→                  dy="2"
+   512→                  stdDeviation="3"
+   513→                  floodOpacity="0.08"
+   514→                />
+   515→              </filter>
+   516→            ))}
+   517→            <filter id="shadow-hover" x="-20%" y="-20%" width="140%" height="140%">
+   518→              <feDropShadow
+   519→                dx="0"
+   520→                dy="4"
+   521→                stdDeviation="6"
+   522→                floodOpacity="0.18"
+   523→              />
+   524→            </filter>
+   525→          </defs>
+   526→
+   527→          <style>{`
+   528→            @keyframes dash-flow {
+   529→              to { stroke-dashoffset: -16; }
+   530→            }
+   531→            .connection-line {
+   532→              animation: dash-flow 1s linear infinite;
+   533→            }
+   534→          `}</style>
+   535→
+   536→          {/* Connections */}
+   537→          {selected.connections?.map((conn) => {
+   538→            const src = nodeMap.get(conn.sourceNodeId);
+   539→            const tgt = nodeMap.get(conn.targetNodeId);
+   540→            if (!src || !tgt) return null;
+   541→            const x1 = src.positionX + nodeW + padX;
+   542→            const y1 = src.positionY + nodeH / 2 + padY;
+   543→            const x2 = tgt.positionX + padX;
+   544→            const y2 = tgt.positionY + nodeH / 2 + padY;
+   545→            const cx = (x1 + x2) / 2;
+   546→
+   547→            return (
+   548→              <g key={conn.id}>
+   549→                {/* Background glow for the path */}
+   550→                <path
+   551→                  d={`M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`}
+   552→                  fill="none"
+   553→                  className="stroke-muted-foreground/10"
+   554→                  strokeWidth="6"
+   555→                  strokeLinecap="round"
+   556→                />
+   557→                {/* Animated dashed line */}
+   558→                <path
+   559→                  d={`M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`}
+   560→                  fill="none"
+   561→                  className="stroke-muted-foreground/50 connection-line"
+   562→                  strokeWidth="2"
+   563→                  strokeDasharray="8 8"
+   564→                  strokeLinecap="round"
+   565→                  markerEnd="url(#arrowhead-animated)"
+   566→                />
+   567→                {conn.label && (
+   568→                  <text
+   569→                    x={cx}
+   570→                    y={Math.min(y1, y2) - 8}
+   571→                    textAnchor="middle"
+   572→                    className="fill-muted-foreground text-[10px] font-mono"
+   573→                  >
+   574→                    {conn.label}
+   575→                  </text>
+   576→                )}
+   577→              </g>
+   578→            );
+   579→          })}
+   580→
+   581→          {/* Nodes */}
+   582→          {selected.nodes.map((node) => {
+   583→            const colors = NODE_COLORS[node.nodeType] || NODE_COLORS.agent;
+   584→            const x = node.positionX + padX;
+   585→            const y = node.positionY + padY;
+   586→            const isHovered = hoveredNodeId === node.id;
+   587→            const scale = isHovered ? 1.06 : 1;
+   588→            const filter = isHovered ? "url(#shadow-hover)" : `url(#shadow-${node.nodeType})`;
+   589→            const subLabel =
+   590→              node.agent?.name || node.tool?.name || "";
+   591→
+   592→            return (
+   593→              <TooltipProvider key={node.id} delayDuration={200}>
+   594→                <Tooltip>
+   595→                  <TooltipTrigger asChild>
+   596→                    <g
+   597→                      onMouseEnter={() => setHoveredNodeId(node.id)}
+   598→                      onMouseLeave={() => setHoveredNodeId(null)}
+   599→                      style={{
+   600→                        transformOrigin: `${x + nodeW / 2}px ${y + nodeH / 2}px`,
+   601→                        transform: `scale(${scale})`,
+   602→                        transition: "transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+   603→                        cursor: "pointer",
+   604→                      }}
+   605→                    >
+   606→                      {/* Node rect */}
+   607→                      <rect
+   608→                        x={x}
+   609→                        y={y}
+   610→                        width={nodeW}
+   611→                        height={nodeH}
+   612→                        rx={12}
+   613→                        className={`${colors.bg} ${colors.border}`}
+   614→                        strokeWidth={isHovered ? 2.5 : 2}
+   615→                        filter={filter}
+   616→                        style={{
+   617→                          transition: "stroke-width 0.2s ease",
+   618→                        }}
+   619→                      />
+   620→
+   621→                      {/* Node type badge */}
+   622→                      <rect
+   623→                        x={x + 8}
+   624→                        y={y + 8}
+   625→                        width={52}
+   626→                        height={18}
+   627→                        rx={4}
+   628→                        className={colors.bg}
+   629→                        opacity={0.7}
+   630→                      />
+   631→                      <circle
+   632→                        cx={x + 16}
+   633→                        cy={y + 17}
+   634→                        r={3}
+   635→                        fill={colors.dot}
+   636→                      />
+   637→                      <text
+   638→                        x={x + 23}
+   639→                        y={y + 21}
+   640→                        className={`${colors.text} text-[10px] font-semibold capitalize`}
+   641→                      >
+   642→                        {node.nodeType}
+   643→                      </text>
+   644→
+   645→                      {/* Node name */}
+   646→                      <text
+   647→                        x={x + nodeW / 2}
+   648→                        y={subLabel ? y + 40 : y + 44}
+   649→                        textAnchor="middle"
+   650→                        className="fill-foreground text-[12px] font-semibold"
+   651→                      >
+   652→                        {node.name.length > 16
+   653→                          ? node.name.slice(0, 14) + "…"
+   654→                          : node.name}
+   655→                      </text>
+   656→
+   657→                      {/* Sub-label (agent/tool name) */}
+   658→                      {subLabel && (
+   659→                        <text
+   660→                          x={x + nodeW / 2}
+   661→                          y={y + 56}
+   662→                          textAnchor="middle"
+   663→                          className="fill-muted-foreground text-[10px]"
+   664→                        >
+   665→                          {subLabel.length > 20
+   666→                            ? subLabel.slice(0, 18) + "…"
+   667→                            : subLabel}
+   668→                        </text>
+   669→                      )}
+   670→
+   671→                      {/* Delete button on hover */}
+   672→                      {isHovered && (
+   673→                        <g
+   674→                          onClick={(e) => {
+   675→                            e.stopPropagation();
+   676→                            handleDeleteNode(node.id);
+   677→                          }}
+   678→                          style={{ cursor: "pointer" }}
+   679→                        >
+   680→                          <rect
+   681→                            x={x + nodeW - 24}
+   682→                            y={y + 4}
+   683→                            width={18}
+   684→                            height={18}
+   685→                            rx={4}
+   686→                            className="fill-destructive/10 stroke-destructive/30"
+   687→                            strokeWidth={1}
+   688→                          />
+   689→                          <text
+   690→                            x={x + nodeW - 18}
+   691→                            y={y + 16}
+   692→                            textAnchor="middle"
+   693→                            className="fill-destructive text-[10px] font-bold"
+   694→                          >
+   695→                            ×
+   696→                          </text>
+   697→                        </g>
+   698→                      )}
+   699→                    </g>
+   700→                  </TooltipTrigger>
+   701→                  <TooltipContent side="top" className="text-xs">
+   702→                    <p className="font-semibold">{node.name}</p>
+   703→                    <p className="text-muted-foreground capitalize">
+   704→                      Type: {node.nodeType}
+   705→                    </p>
+   706→                    {node.agent?.name && (
+   707→                      <p className="text-muted-foreground">
+   708→                        Agent: {node.agent.name}
+   709→                      </p>
+   710→                    )}
+   711→                    {node.tool?.name && (
+   712→                      <p className="text-muted-foreground">
+   713→                        Tool: {node.tool.name}
+   714→                      </p>
+   715→                    )}
+   716→                    <p className="text-muted-foreground">
+   717→                      Click × to remove
+   718→                    </p>
+   719→                  </TooltipContent>
+   720→                </Tooltip>
+   721→              </TooltipProvider>
+   722→            );
+   723→          })}
+   724→
+   725→          {/* Legend */}
+   726→          <g transform={`translate(${padX}, ${svgH - 44})`}>
+   727→            <text
+   728→              x={0}
+   729→              y={0}
+   730→              className="fill-muted-foreground text-[10px] font-semibold uppercase tracking-wider"
+   731→            >
+   732→              Legend
+   733→            </text>
+   734→            {NODE_TYPE_OPTIONS.map((opt, i) => {
+   735→              const lx = i * 100;
+   736→              return (
+   737→                <g key={opt.value} transform={`translate(${lx}, 10)`}>
+   738→                  <circle
+   739→                    cx={6}
+   740→                    cy={6}
+   741→                    r={5}
+   742→                    fill={NODE_COLORS[opt.value].dot}
+   743→                    opacity={0.8}
+   744→                  />
+   745→                  <text
+   746→                    x={16}
+   747→                    y={10}
+   748→                    className="fill-muted-foreground text-[10px] capitalize"
+   749→                  >
+   750→                    {opt.label}
+   751→                  </text>
+   752→                </g>
+   753→              );
+   754→            })}
+   755→          </g>
+   756→        </svg>
+   757→      </div>
+   758→    );
+   759→  };
+   760→
+   761→  // ─── Execution Timeline ─────────────────────────────────────────────────────
+   762→
+   763→  const renderExecutionTimeline = (exec: WorkflowExecution) => {
+   764→    const results = parseNodeResults(exec.nodeResults);
+   765→    if (results.length === 0) return null;
+   766→
+   767→    const statusIcon = (status: string) => {
+   768→      switch (status) {
+   769→        case "completed":
+   770→          return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+   771→        case "running":
+   772→          return <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />;
+   773→        case "failed":
+   774→          return <XCircle className="h-3.5 w-3.5 text-rose-500" />;
+   775→        default:
+   776→          return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;
+   777→      }
+   778→    };
+   779→
+   780→    return (
+   781→      <div className="mt-3">
+   782→        <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+   783→          Node Execution Timeline
+   784→        </p>
+   785→        <div className="flex items-start gap-0 overflow-x-auto pb-2">
+   786→          {results.map((result, idx) => (
+   787→            <div key={result.nodeId || idx} className="flex items-start shrink-0">
+   788→              {/* Node card */}
+   789→              <div className="flex flex-col items-center w-28 px-2">
+   790→                <div className="flex items-center gap-1.5 mb-1">
+   791→                  {statusIcon(result.status)}
+   792→                  <span className="text-[11px] font-semibold truncate max-w-[80px]">
+   793→                    {result.nodeName || `Node ${idx + 1}`}
+   794→                  </span>
+   795→                </div>
+   796→                {result.duration !== undefined && (
+   797→                  <span className="text-[10px] text-muted-foreground">
+   798→                    {formatDuration(result.duration)}
+   799→                  </span>
+   800→                )}
+   801→              </div>
+   802→              {/* Arrow between nodes */}
+   803→              {idx < results.length - 1 && (
+   804→                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 mt-0.5 shrink-0" />
+   805→              )}
+   806→            </div>
+   807→          ))}
+   808→        </div>
+   809→      </div>
+   810→    );
+   811→  };
+   812→
+   813→  // ─── Render ─────────────────────────────────────────────────────────────────
+   814→
+   815→  return (
+   816→    <div className="space-y-6">
+   817→      {/* Header */}
+   818→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+   819→        <div>
+   820→          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+   821→            <WorkflowIcon className="h-6 w-6 text-emerald-500" />
+   822→            Workflows
+   823→          </h2>
+   824→          <p className="text-muted-foreground mt-1">
+   825→            Design and orchestrate multi-step agent workflows.
+   826→          </p>
+   827→        </div>
+   828→        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   829→          <DialogTrigger asChild>
+   830→            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+   831→              <Plus className="h-4 w-4 mr-2" />
+   832→              New Workflow
+   833→            </Button>
+   834→          </DialogTrigger>
+   835→          <DialogContent>
+   836→            <DialogHeader>
+   837→              <DialogTitle>Create Workflow</DialogTitle>
+   838→            </DialogHeader>
+   839→            <div className="space-y-4 pt-2">
+   840→              <div className="space-y-2">
+   841→                <Label>Name</Label>
+   842→                <Input
+   843→                  value={newWf.name}
+   844→                  onChange={(e) =>
+   845→                    setNewWf({ ...newWf, name: e.target.value })
+   846→                  }
+   847→                  placeholder="Research Pipeline"
+   848→                />
+   849→              </div>
+   850→              <div className="space-y-2">
+   851→                <Label>Description</Label>
+   852→                <Textarea
+   853→                  value={newWf.description}
+   854→                  onChange={(e) =>
+   855→                    setNewWf({ ...newWf, description: e.target.value })
+   856→                  }
+   857→                  placeholder="What does this workflow do?"
+   858→                  rows={2}
+   859→                />
+   860→              </div>
+   861→              <Button
+   862→                onClick={handleCreate}
+   863→                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+   864→                disabled={!newWf.name.trim()}
+   865→              >
+   866→                Create Workflow
+   867→              </Button>
+   868→            </div>
+   869→          </DialogContent>
+   870→        </Dialog>
+   871→      </div>
+   872→
+   873→      {/* Main grid */}
+   874→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   875→        {/* Sidebar: Workflow list */}
+   876→        <div className="lg:col-span-1">
+   877→          <Card className="border-border/60 shadow-sm">
+   878→            <CardHeader className="pb-3">
+   879→              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+   880→                All Workflows
+   881→              </CardTitle>
+   882→            </CardHeader>
+   883→            <CardContent className="p-2">
+   884→              {loading ? (
+   885→                <div className="space-y-2 p-2">
+   886→                  {[1, 2, 3].map((i) => (
+   887→                    <Skeleton key={i} className="h-20 w-full rounded-lg" />
+   888→                  ))}
+   889→                </div>
+   890→              ) : workflows.length === 0 ? (
+   891→                <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+   892→                  <div className="rounded-full bg-muted p-3 mb-3">
+   893→                    <WorkflowIcon className="h-6 w-6 text-muted-foreground" />
+   894→                  </div>
+   895→                  <p className="text-sm font-medium text-muted-foreground mb-1">
+   896→                    No workflows yet
+   897→                  </p>
+   898→                  <p className="text-xs text-muted-foreground/70">
+   899→                    Create your first workflow to get started.
+   900→                  </p>
+   901→                </div>
+   902→              ) : (
+   903→                <ScrollArea className="max-h-[500px]">
+   904→                  <div className="space-y-1 p-1">
+   905→                    {workflows.map((wf) => (
+   906→                      <button
+   907→                        key={wf.id}
+   908→                        onClick={() =>
+   909→                          setSelectedWorkflowId(
+   910→                            wf.id === selectedWorkflowId ? null : wf.id
+   911→                          )
+   912→                        }
+   913→                        className={`w-full text-left p-3 rounded-lg transition-all duration-150 group
+   914→                          ${
+   915→                            selectedWorkflowId === wf.id
+   916→                              ? "bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 shadow-sm"
+   917→                              : "hover:bg-muted/60 border border-transparent"
+   918→                          }`}
+   919→                      >
+   920→                        <div className="flex items-center justify-between mb-1">
+   921→                          <p className="font-medium text-sm truncate pr-2">
+   922→                            {wf.name}
+   923→                          </p>
+   924→                          <ChevronRight
+   925→                            className={`h-4 w-4 text-muted-foreground flex-shrink-0 transition-opacity duration-150
+   926→                              ${selectedWorkflowId === wf.id ? "opacity-100 text-emerald-500" : "opacity-0 group-hover:opacity-100"}`}
+   927→                          />
+   928→                        </div>
+   929→                        <p className="text-xs text-muted-foreground truncate mb-2">
+   930→                          {wf.description || "No description"}
+   931→                        </p>
+   932→                        <div className="flex items-center gap-2 flex-wrap">
+   933→                          <Badge
+   934→                            variant="outline"
+   935→                            className="text-[10px] px-1.5 py-0"
+   936→                          >
+   937→                            {wf._count?.nodes || 0} nodes
+   938→                          </Badge>
+   939→                          <Badge
+   940→                            variant="outline"
+   941→                            className="text-[10px] px-1.5 py-0"
+   942→                          >
+   943→                            {wf._count?.connections || 0} edges
+   944→                          </Badge>
+   945→                          <Badge
+   946→                            className={`text-[10px] px-1.5 py-0 border cursor-default ${
+   947→                              STATUS_BADGE_CLASSES[wf.status] || ""
+   948→                            }`}
+   949→                          >
+   950→                            {wf.status}
+   951→                          </Badge>
+   952→                        </div>
+   953→                      </button>
+   954→                    ))}
+   955→                  </div>
+   956→                </ScrollArea>
+   957→              )}
+   958→            </CardContent>
+   959→          </Card>
+   960→        </div>
+   961→
+   962→        {/* Main panel: Selected workflow */}
+   963→        <div className="lg:col-span-2">
+   964→          {selected ? (
+   965→            <div className="space-y-4">
+   966→              {/* Workflow header card */}
+   967→              <Card className="border-border/60 shadow-sm overflow-hidden">
+   968→                <div
+   969→                  className="h-1"
+   970→                  style={{
+   971→                    background:
+   972→                      selected.status === "active"
+   973→                        ? "linear-gradient(90deg, #10b981, #14b8a6)"
+   974→                        : selected.status === "archived"
+   975→                          ? "linear-gradient(90deg, #f59e0b, #f97316)"
+   976→                          : "linear-gradient(90deg, #94a3b8, #64748b)",
+   977→                  }}
+   978→                />
+   979→                <CardHeader>
+   980→                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+   981→                    <div className="space-y-1">
+   982→                      <CardTitle className="flex items-center gap-2 text-lg">
+   983→                        <GitBranch className="h-5 w-5 text-emerald-500" />
+   984→                        {selected.name}
+   985→                      </CardTitle>
+   986→                      <CardDescription>{selected.description}</CardDescription>
+   987→                    </div>
+   988→                    <div className="flex items-center gap-2 flex-shrink-0">
+   989→                      {/* Status toggle badge */}
+   990→                      <button
+   991→                        onClick={handleStatusToggle}
+   992→                        disabled={togglingStatus}
+   993→                        className={`transition-all duration-200 text-[11px] font-medium px-2.5 py-1 rounded-full border cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-wait ${
+   994→                          STATUS_BADGE_CLASSES[selected.status] || ""
+   995→                        }`}
+   996→                      >
+   997→                        {togglingStatus ? (
+   998→                          <Loader2 className="h-3 w-3 animate-spin inline mr-1" />
+   999→                        ) : null}
+  1000→                        {selected.status}
+  1001→                      </button>
+  1002→                      <Button
+  1003→                        variant="ghost"
+  1004→                        size="icon"
+  1005→                        onClick={() => handleDelete(selected.id)}
+  1006→                        className="text-muted-foreground hover:text-destructive transition-colors"
+  1007→                      >
+  1008→                        <Trash2 className="h-4 w-4" />
+  1009→                      </Button>
+  1010→                    </div>
+  1011→                  </div>
+  1012→                </CardHeader>
+  1013→                <CardContent className="space-y-5">
+  1014→                  {/* Visual Graph */}
+  1015→                  {selected.nodes && selected.nodes.length > 0 ? (
+  1016→                    <div className="space-y-3">
+  1017→                      <div className="flex items-center justify-between">
+  1018→                        <h3 className="text-sm font-semibold text-muted-foreground">
+  1019→                          Workflow Graph
+  1020→                        </h3>
+  1021→                        <Dialog
+  1022→                          open={addNodeOpen}
+  1023→                          onOpenChange={(open) => {
+  1024→                            setAddNodeOpen(open);
+  1025→                            if (!open) resetNodeForm();
+  1026→                          }}
+  1027→                        >
+  1028→                          <DialogTrigger asChild>
+  1029→                            <Button
+  1030→                              variant="outline"
+  1031→                              size="sm"
+  1032→                              className="text-xs gap-1.5"
+  1033→                            >
+  1034→                              <Plus className="h-3.5 w-3.5" />
+  1035→                              Add Node
+  1036→                            </Button>
+  1037→                          </DialogTrigger>
+  1038→                          <DialogContent>
+  1039→                            <DialogHeader>
+  1040→                              <DialogTitle>Add Node to Workflow</DialogTitle>
+  1041→                            </DialogHeader>
+  1042→                            <div className="space-y-4 pt-2">
+  1043→                              <div className="space-y-2">
+  1044→                                <Label>Node Name</Label>
+  1045→                                <Input
+  1046→                                  value={newNodeName}
+  1047→                                  onChange={(e) =>
+  1048→                                    setNewNodeName(e.target.value)
+  1049→                                  }
+  1050→                                  placeholder="e.g. Research Agent"
+  1051→                                />
+  1052→                              </div>
+  1053→
+  1054→                              <div className="space-y-2">
+  1055→                                <Label>Node Type</Label>
+  1056→                                <Select
+  1057→                                  value={newNodeType}
+  1058→                                  onValueChange={(val) => {
+  1059→                                    setNewNodeType(val);
+  1060→                                    setNewNodeAgentId("");
+  1061→                                    setNewNodeToolId("");
+  1062→                                  }}
+  1063→                                >
+  1064→                                  <SelectTrigger>
+  1065→                                    <SelectValue placeholder="Select type..." />
+  1066→                                  </SelectTrigger>
+  1067→                                  <SelectContent>
+  1068→                                    {NODE_TYPE_OPTIONS.map((opt) => (
+  1069→                                      <SelectItem
+  1070→                                        key={opt.value}
+  1071→                                        value={opt.value}
+  1072→                                      >
+  1073→                                        <span className="flex items-center gap-2">
+  1074→                                          <span
+  1075→                                            className="inline-block w-2.5 h-2.5 rounded-full"
+  1076→                                            style={{
+  1077→                                              backgroundColor:
+  1078→                                                NODE_COLORS[opt.value]?.dot,
+  1079→                                            }}
+  1080→                                          />
+  1081→                                          {opt.label}
+  1082→                                        </span>
+  1083→                                      </SelectItem>
+  1084→                                    ))}
+  1085→                                  </SelectContent>
+  1086→                                </Select>
+  1087→                              </div>
+  1088→
+  1089→                              {/* Agent select (shown when type is "agent") */}
+  1090→                              {newNodeType === "agent" && (
+  1091→                                <div className="space-y-2">
+  1092→                                  <Label>Assign Agent</Label>
+  1093→                                  {agentsLoading ? (
+  1094→                                    <div className="flex items-center gap-2 py-2">
+  1095→                                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+  1096→                                      <span className="text-sm text-muted-foreground">
+  1097→                                        Loading agents...
+  1098→                                      </span>
+  1099→                                    </div>
+  1100→                                  ) : agents.length === 0 ? (
+  1101→                                    <p className="text-sm text-muted-foreground py-2">
+  1102→                                      No agents available. Create one first.
+  1103→                                    </p>
+  1104→                                  ) : (
+  1105→                                    <Select
+  1106→                                      value={newNodeAgentId}
+  1107→                                      onValueChange={setNewNodeAgentId}
+  1108→                                    >
+  1109→                                      <SelectTrigger>
+  1110→                                        <SelectValue placeholder="Select an agent..." />
+  1111→                                      </SelectTrigger>
+  1112→                                      <SelectContent>
+  1113→                                        {agents.map((a) => (
+  1114→                                          <SelectItem key={a.id} value={a.id}>
+  1115→                                            <span className="flex items-center gap-2">
+  1116→                                              <CircleDot className="h-3 w-3 text-emerald-500" />
+  1117→                                              {a.name}
+  1118→                                              <span className="text-xs text-muted-foreground ml-auto pl-4">
+  1119→                                                {a.type}
+  1120→                                              </span>
+  1121→                                            </span>
+  1122→                                          </SelectItem>
+  1123→                                        ))}
+  1124→                                      </SelectContent>
+  1125→                                    </Select>
+  1126→                                  )}
+  1127→                                </div>
+  1128→                              )}
+  1129→
+  1130→                              {/* Tool select (shown when type is "tool") */}
+  1131→                              {newNodeType === "tool" && (
+  1132→                                <div className="space-y-2">
+  1133→                                  <Label>Assign Tool</Label>
+  1134→                                  {toolsLoading ? (
+  1135→                                    <div className="flex items-center gap-2 py-2">
+  1136→                                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+  1137→                                      <span className="text-sm text-muted-foreground">
+  1138→                                        Loading tools...
+  1139→                                      </span>
+  1140→                                    </div>
+  1141→                                  ) : tools.length === 0 ? (
+  1142→                                    <p className="text-sm text-muted-foreground py-2">
+  1143→                                      No tools available. Create one first.
+  1144→                                    </p>
+  1145→                                  ) : (
+  1146→                                    <Select
+  1147→                                      value={newNodeToolId}
+  1148→                                      onValueChange={setNewNodeToolId}
+  1149→                                    >
+  1150→                                      <SelectTrigger>
+  1151→                                        <SelectValue placeholder="Select a tool..." />
+  1152→                                      </SelectTrigger>
+  1153→                                      <SelectContent>
+  1154→                                        {tools.map((t) => (
+  1155→                                          <SelectItem key={t.id} value={t.id}>
+  1156→                                            <span className="flex items-center gap-2">
+  1157→                                              <Box className="h-3 w-3 text-amber-500" />
+  1158→                                              {t.name}
+  1159→                                              <span className="text-xs text-muted-foreground ml-auto pl-4">
+  1160→                                                {t.type}
+  1161→                                              </span>
+  1162→                                            </span>
+  1163→                                          </SelectItem>
+  1164→                                        ))}
+  1165→                                      </SelectContent>
+  1166→                                    </Select>
+  1167→                                  )}
+  1168→                                </div>
+  1169→                              )}
+  1170→
+  1171→                              <Button
+  1172→                                onClick={handleCreateNode}
+  1173→                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+  1174→                                disabled={
+  1175→                                  !newNodeName.trim() ||
+  1176→                                  !newNodeType ||
+  1177→                                  creatingNode
+  1178→                                }
+  1179→                              >
+  1180→                                {creatingNode ? (
+  1181→                                  <span className="flex items-center gap-2">
+  1182→                                    <Loader2 className="h-4 w-4 animate-spin" />
+  1183→                                    Adding...
+  1184→                                  </span>
+  1185→                                ) : (
+  1186→                                  "Add Node"
+  1187→                                )}
+  1188→                              </Button>
+  1189→                            </div>
+  1190→                          </DialogContent>
+  1191→                        </Dialog>
+  1192→                      </div>
+  1193→                      {renderGraph()}
+  1194→                    </div>
+  1195→                  ) : (
+  1196→                    <div className="flex flex-col items-center justify-center py-12 border border-dashed rounded-xl">
+  1197→                      <div className="rounded-full bg-muted p-4 mb-4">
+  1198→                        <Layers className="h-8 w-8 text-muted-foreground" />
+  1199→                      </div>
+  1200→                      <p className="text-sm font-medium text-muted-foreground mb-1">
+  1201→                        No nodes in this workflow
+  1202→                      </p>
+  1203→                      <p className="text-xs text-muted-foreground/70 mb-4 text-center px-4">
+  1204→                        Add nodes to build your workflow graph. Each node
+  1205→                        represents an agent, tool, condition, transform, or
+  1206→                        output step.
+  1207→                      </p>
+  1208→                      <Dialog
+  1209→                        open={addNodeOpen}
+  1210→                        onOpenChange={(open) => {
+  1211→                          setAddNodeOpen(open);
+  1212→                          if (!open) resetNodeForm();
+  1213→                        }}
+  1214→                      >
+  1215→                        <DialogTrigger asChild>
+  1216→                          <Button
+  1217→                            variant="outline"
+  1218→                            size="sm"
+  1219→                            className="gap-1.5"
+  1220→                          >
+  1221→                            <Plus className="h-3.5 w-3.5" />
+  1222→                            Add First Node
+  1223→                          </Button>
+  1224→                        </DialogTrigger>
+  1225→                        <DialogContent>
+  1226→                          <DialogHeader>
+  1227→                            <DialogTitle>Add Node to Workflow</DialogTitle>
+  1228→                          </DialogHeader>
+  1229→                          <div className="space-y-4 pt-2">
+  1230→                            <div className="space-y-2">
+  1231→                              <Label>Node Name</Label>
+  1232→                              <Input
+  1233→                                value={newNodeName}
+  1234→                                onChange={(e) =>
+  1235→                                  setNewNodeName(e.target.value)
+  1236→                                }
+  1237→                                placeholder="e.g. Research Agent"
+  1238→                              />
+  1239→                            </div>
+  1240→                            <div className="space-y-2">
+  1241→                              <Label>Node Type</Label>
+  1242→                              <Select
+  1243→                                value={newNodeType}
+  1244→                                onValueChange={(val) => {
+  1245→                                  setNewNodeType(val);
+  1246→                                  setNewNodeAgentId("");
+  1247→                                  setNewNodeToolId("");
+  1248→                                }}
+  1249→                              >
+  1250→                                <SelectTrigger>
+  1251→                                  <SelectValue placeholder="Select type..." />
+  1252→                                </SelectTrigger>
+  1253→                                <SelectContent>
+  1254→                                  {NODE_TYPE_OPTIONS.map((opt) => (
+  1255→                                    <SelectItem
+  1256→                                      key={opt.value}
+  1257→                                      value={opt.value}
+  1258→                                    >
+  1259→                                      <span className="flex items-center gap-2">
+  1260→                                        <span
+  1261→                                          className="inline-block w-2.5 h-2.5 rounded-full"
+  1262→                                          style={{
+  1263→                                            backgroundColor:
+  1264→                                              NODE_COLORS[opt.value]?.dot,
+  1265→                                          }}
+  1266→                                        />
+  1267→                                        {opt.label}
+  1268→                                      </span>
+  1269→                                    </SelectItem>
+  1270→                                  ))}
+  1271→                                </SelectContent>
+  1272→                              </Select>
+  1273→                            </div>
+  1274→
+  1275→                            {newNodeType === "agent" && (
+  1276→                              <div className="space-y-2">
+  1277→                                <Label>Assign Agent</Label>
+  1278→                                {agentsLoading ? (
+  1279→                                  <div className="flex items-center gap-2 py-2">
+  1280→                                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+  1281→                                    <span className="text-sm text-muted-foreground">
+  1282→                                      Loading agents...
+  1283→                                    </span>
+  1284→                                  </div>
+  1285→                                ) : agents.length === 0 ? (
+  1286→                                  <p className="text-sm text-muted-foreground py-2">
+  1287→                                    No agents available. Create one first.
+  1288→                                  </p>
+  1289→                                ) : (
+  1290→                                  <Select
+  1291→                                    value={newNodeAgentId}
+  1292→                                    onValueChange={setNewNodeAgentId}
+  1293→                                  >
+  1294→                                    <SelectTrigger>
+  1295→                                      <SelectValue placeholder="Select an agent..." />
+  1296→                                    </SelectTrigger>
+  1297→                                    <SelectContent>
+  1298→                                      {agents.map((a) => (
+  1299→                                        <SelectItem
+  1300→                                          key={a.id}
+  1301→                                          value={a.id}
+  1302→                                        >
+  1303→                                          <span className="flex items-center gap-2">
+  1304→                                            <CircleDot className="h-3 w-3 text-emerald-500" />
+  1305→                                            {a.name}
+  1306→                                            <span className="text-xs text-muted-foreground ml-auto pl-4">
+  1307→                                              {a.type}
+  1308→                                            </span>
+  1309→                                          </span>
+  1310→                                        </SelectItem>
+  1311→                                      ))}
+  1312→                                    </SelectContent>
+  1313→                                  </Select>
+  1314→                                )}
+  1315→                              </div>
+  1316→                            )}
+  1317→
+  1318→                            {newNodeType === "tool" && (
+  1319→                              <div className="space-y-2">
+  1320→                                <Label>Assign Tool</Label>
+  1321→                                {toolsLoading ? (
+  1322→                                  <div className="flex items-center gap-2 py-2">
+  1323→                                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+  1324→                                    <span className="text-sm text-muted-foreground">
+  1325→                                      Loading tools...
+  1326→                                    </span>
+  1327→                                  </div>
+  1328→                                ) : tools.length === 0 ? (
+  1329→                                  <p className="text-sm text-muted-foreground py-2">
+  1330→                                    No tools available. Create one first.
+  1331→                                  </p>
+  1332→                                ) : (
+  1333→                                  <Select
+  1334→                                    value={newNodeToolId}
+  1335→                                    onValueChange={setNewNodeToolId}
+  1336→                                  >
+  1337→                                    <SelectTrigger>
+  1338→                                      <SelectValue placeholder="Select a tool..." />
+  1339→                                    </SelectTrigger>
+  1340→                                    <SelectContent>
+  1341→                                      {tools.map((t) => (
+  1342→                                        <SelectItem
+  1343→                                          key={t.id}
+  1344→                                          value={t.id}
+  1345→                                        >
+  1346→                                          <span className="flex items-center gap-2">
+  1347→                                            <Box className="h-3 w-3 text-amber-500" />
+  1348→                                            {t.name}
+  1349→                                            <span className="text-xs text-muted-foreground ml-auto pl-4">
+  1350→                                              {t.type}
+  1351→                                            </span>
+  1352→                                          </span>
+  1353→                                        </SelectItem>
+  1354→                                      ))}
+  1355→                                    </SelectContent>
+  1356→                                  </Select>
+  1357→                                )}
+  1358→                              </div>
+  1359→                            )}
+  1360→
+  1361→                            <Button
+  1362→                              onClick={handleCreateNode}
+  1363→                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+  1364→                              disabled={
+  1365→                                !newNodeName.trim() ||
+  1366→                                !newNodeType ||
+  1367→                                creatingNode
+  1368→                              }
+  1369→                            >
+  1370→                              {creatingNode ? (
+  1371→                                <span className="flex items-center gap-2">
+  1372→                                  <Loader2 className="h-4 w-4 animate-spin" />
+  1373→                                  Adding...
+  1374→                                </span>
+  1375→                              ) : (
+  1376→                                "Add Node"
+  1377→                              )}
+  1378→                            </Button>
+  1379→                          </div>
+  1380→                        </DialogContent>
+  1381→                      </Dialog>
+  1382→                    </div>
+  1383→                  )}
+  1384→
+  1385→                  <Separator />
+  1386→
+  1387→                  {/* Execute bar */}
+  1388→                  <div className="flex flex-col sm:flex-row gap-2">
+  1389→                    <Input
+  1390→                      value={execInput}
+  1391→                      onChange={(e) => setExecInput(e.target.value)}
+  1392→                      placeholder="Enter workflow input..."
+  1393→                      onKeyDown={(e) => e.key === "Enter" && handleExecute()}
+  1394→                      className="flex-1"
+  1395→                    />
+  1396→                    <Button
+  1397→                      onClick={handleExecute}
+  1398→                      disabled={executing}
+  1399→                      className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+  1400→                    >
+  1401→                      {executing ? (
+  1402→                        <span className="flex items-center gap-2">
+  1403→                          <Zap className="h-4 w-4 animate-pulse" />
+  1404→                          Running
+  1405→                        </span>
+  1406→                      ) : (
+  1407→                        <>
+  1408→                          <Play className="h-4 w-4" />
+  1409→                          Execute
+  1410→                        </>
+  1411→                      )}
+  1412→                    </Button>
+  1413→                  </div>
+  1414→                </CardContent>
+  1415→              </Card>
+  1416→
+  1417→              {/* Execution History */}
+  1418→              <Card className="border-border/60 shadow-sm">
+  1419→                <CardHeader className="pb-3">
+  1420→                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+  1421→                    <Clock className="h-4 w-4 text-muted-foreground" />
+  1422→                    Execution History
+  1423→                  </CardTitle>
+  1424→                </CardHeader>
+  1425→                <CardContent>
+  1426→                  {!selected.executions || selected.executions.length === 0 ? (
+  1427→                    <div className="flex flex-col items-center justify-center py-8 text-center">
+  1428→                      <div className="rounded-full bg-muted p-3 mb-3">
+  1429→                        <Play className="h-5 w-5 text-muted-foreground" />
+  1430→                      </div>
+  1431→                      <p className="text-sm font-medium text-muted-foreground mb-1">
+  1432→                        No executions yet
+  1433→                      </p>
+  1434→                      <p className="text-xs text-muted-foreground/70">
+  1435→                        Run this workflow to see execution history here.
+  1436→                      </p>
+  1437→                    </div>
+  1438→                  ) : (
+  1439→                    <ScrollArea className="max-h-96">
+  1440→                      <div className="space-y-3 pr-2">
+  1441→                        {selected.executions.map((exec) => (
+  1442→                          <div
+  1443→                            key={exec.id}
+  1444→                            className="p-4 rounded-lg border border-border/60 bg-background hover:bg-muted/20 transition-colors"
+  1445→                          >
+  1446→                            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+  1447→                              <Badge
+  1448→                                className={`text-[10px] border ${
+  1449→                                  exec.status === "completed"
+  1450→                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800"
+  1451→                                    : exec.status === "failed"
+  1452→                                      ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
+  1453→                                      : exec.status === "running"
+  1454→                                        ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800"
+  1455→                                        : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700"
+  1456→                                }`}
+  1457→                              >
+  1458→                                {exec.status}
+  1459→                              </Badge>
+  1460→                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+  1461→                                <span className="flex items-center gap-1">
+  1462→                                  <Clock className="h-3 w-3" />
+  1463→                                  {formatDuration(exec.duration)}
+  1464→                                </span>
+  1465→                                <span>{timeAgo(exec.createdAt)}</span>
+  1466→                              </div>
+  1467→                            </div>
+  1468→                            {exec.input && (
+  1469→                              <p className="text-xs text-muted-foreground mb-1.5">
+  1470→                                <span className="font-medium text-foreground/70">
+  1471→                                  Input:
+  1472→                                </span>{" "}
+  1473→                                {exec.input}
+  1474→                              </p>
+  1475→                            )}
+  1476→                            {exec.output && (
+  1477→                              <p className="text-xs text-muted-foreground">
+  1478→                                <span className="font-medium text-foreground/70">
+  1479→                                  Output:
+  1480→                                </span>{" "}
+  1481→                                {exec.output.length > 200
+  1482→                                  ? exec.output.slice(0, 200) + "…"
+  1483→                                  : exec.output}
+  1484→                              </p>
+  1485→                            )}
+  1486→                            {/* Execution timeline */}
+  1487→                            {renderExecutionTimeline(exec)}
+  1488→                          </div>
+  1489→                        ))}
+  1490→                      </div>
+  1491→                    </ScrollArea>
+  1492→                  )}
+  1493→                </CardContent>
+  1494→              </Card>
+  1495→            </div>
+  1496→          ) : (
+  1497→            /* Empty state: no workflow selected */
+  1498→            <Card className="border-border/60 shadow-sm h-full min-h-[400px] flex items-center justify-center">
+  1499→              <div className="flex flex-col items-center justify-center text-center px-8">
+  1500→                <div className="rounded-2xl bg-muted/50 p-5 mb-5 border border-border/40">
+  1501→                  <WorkflowIcon className="h-10 w-10 text-muted-foreground/60" />
+  1502→                </div>
+  1503→                <h3 className="text-lg font-semibold text-foreground/80 mb-2">
+  1504→                  Select a Workflow
+  1505→                </h3>
+  1506→                <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+  1507→                  Choose a workflow from the list to view its graph, manage
+  1508→                  nodes, and run executions. Or create a new one to get
+  1509→                  started.
+  1510→                </p>
+  1511→              </div>
+  1512→            </Card>
+  1513→          )}
+  1514→        </div>
+  1515→      </div>
+  1516→    </div>
+  1517→  );
+  1518→}

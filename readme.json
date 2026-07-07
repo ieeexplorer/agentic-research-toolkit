@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\"># Agentic Research Toolkit\n\nA modular toolkit for building, testing, and evaluating agentic research workflows.\n\nThis repository is designed as a professional, collaboration-friendly foundation for research agents, retrieval-augmented generation, tool calling, evaluation pipelines, and future MCP/cloud integrations.\n\n## Purpose  ##\n\n\nThe goal is to provide a clean framework where contributors can safely build their own branches without breaking the stable `main` branch.\n\n## Core Ideas\n\n- **Agents**: reusable research, planning, retrieval, writing, and evaluation agents.\n- **Orchestration**: workflow coordination between multiple agents and tools.\n- **Memory**: short-term and long-term context handling.\n- **Tools**: connectors for search, documents, APIs, databases, and local utilities.\n- **Evaluation**: measurable quality checks for agent outputs.\n- **Examples**: simple demos that explain the system quickly.\n\n## Repository Structure\n\n```text\nagentic-research-toolkit/\n├── src/agentic_research_toolkit/\n│   ├── agents/\n│   ├── orchestration/\n│   ├── memory/\n│   ├── tools/\n│   ├── evaluation/\n│   └── config/\n├── examples/\n├── tests/\n├── docs/\n├── research/\n├── notebooks/\n├── infra/\n└── .github/\n```\n\n## Branch Strategy\n\n| Branch Pattern | Purpose |\n|---|---|\n| `main` | Stable, clean, production-ready foundation |\n| `develop` | Integration branch for tested upcoming work |\n| `feature/*` | New features by contributors |\n| `research/*` | Experimental ideas, papers, prototypes |\n| `docs/*` | Documentation-only changes |\n| `hotfix/*` | Urgent fixes from main |\n| `strategy/*` | Architectural proposals and design strategies |\n\n## First Strategy Branch\n\nThe first architecture strategy branch is:\n\n```text\nstrategy/modular-multi-agent-orchestrator\n```\n\nIt proposes a scalable multi-agent architecture suitable for:\n\n- autonomous research assistants\n- MCP-compatible tool servers\n- RAG pipelines\n- cloud-hosted agent workflows\n- evaluation-driven development\n- academic/research portfolio projects\n\n## Quick Start\n\n```bash\npython -m venv .venv\nsource .venv/bin/activate  # Windows: .venv\\Scripts\\activate\npip install -e .[dev]\npytest\n```\n\n## Roadmap\n\n- [ ] Add baseline research agent\n- [ ] Add tool registry\n- [ ] Add workflow orchestrator\n- [ ] Add document ingestion pipeline\n- [ ] Add evaluation metrics\n- [ ] Add MCP server example\n- [ ] Add cloud deployment templates\n\n## License\n\nMIT License.\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "title": "",
+    "url": "https://raw.githubusercontent.com/ieeexplorer/agentic-research-toolkit/main/README.md",
+    "usage": {
+      "tokens": 594
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 594
+    }
+  },
+  "status": 20000
+}

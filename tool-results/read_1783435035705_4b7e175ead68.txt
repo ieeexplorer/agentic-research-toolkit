@@ -1,0 +1,565 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback } from "react";
+     4→import { useToolkitStore } from "@/hooks/use-toolkit-store";
+     5→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+     6→import { Button } from "@/components/ui/button";
+     7→import { Badge } from "@/components/ui/badge";
+     8→import { Input } from "@/components/ui/input";
+     9→import { Textarea } from "@/components/ui/textarea";
+    10→import { Label } from "@/components/ui/label";
+    11→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    12→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
+    13→import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+    14→import { Separator } from "@/components/ui/separator";
+    15→import { ScrollArea } from "@/components/ui/scroll-area";
+    16→import { Skeleton } from "@/components/ui/skeleton";
+    17→import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+    18→import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+    19→import { motion, AnimatePresence } from "framer-motion";
+    20→import {
+    21→  Wrench, Plus, Play, Trash2, ChevronRight, Globe, Search, FileText, Database,
+    22→  Terminal, Layers, Clock, Zap, Edit3, MoreHorizontal, Check, X,
+    23→  Workflow, Archive, CircleDot, WrenchIcon, ChevronDown, Inbox,
+    24→  Activity,
+    25→} from "lucide-react";
+    26→import { toast } from "sonner";
+    27→
+    28→interface Tool {
+    29→  id: string;
+    30→  name: string;
+    31→  description: string;
+    32→  type: string;
+    33→  endpoint: string;
+    34→  config: string;
+    35→  status: string;
+    36→  _count?: { executions: number; workflowNodes: number };
+    37→  executions?: ToolExecution[];
+    38→}
+    39→
+    40→interface ToolExecution {
+    41→  id: string;
+    42→  input: string;
+    43→  output: string;
+    44→  status: string;
+    45→  duration: number;
+    46→  createdAt: string;
+    47→}
+    48→
+    49→const TYPE_CONFIG: Record<string, { icon: typeof Wrench; color: string; bg: string; border: string }> = {
+    50→  api: { icon: Globe, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-50 dark:bg-teal-950/60", border: "border-l-teal-500" },
+    51→  search: { icon: Search, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/60", border: "border-l-emerald-500" },
+    52→  document: { icon: FileText, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/60", border: "border-l-amber-500" },
+    53→  database: { icon: Database, color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-50 dark:bg-rose-950/60", border: "border-l-rose-500" },
+    54→  local: { icon: Terminal, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-50 dark:bg-orange-950/60", border: "border-l-orange-500" },
+    55→  mcp: { icon: Layers, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-50 dark:bg-cyan-950/60", border: "border-l-cyan-500" },
+    56→};
+    57→
+    58→const STATUS_CONFIG: Record<string, { label: string; color: string; dotColor: string }> = {
+    59→  active: { label: "Active", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300", dotColor: "bg-emerald-500" },
+    60→  draft: { label: "Draft", color: "bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300", dotColor: "bg-amber-500" },
+    61→  archived: { label: "Archived", color: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400", dotColor: "bg-zinc-400" },
+    62→};
+    63→
+    64→function timeAgo(d: string) {
+    65→  const mins = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
+    66→  if (mins < 1) return "just now";
+    67→  if (mins < 60) return `${mins}m ago`;
+    68→  const h = Math.floor(mins / 60);
+    69→  if (h < 24) return `${h}h ago`;
+    70→  return `${Math.floor(h / 24)}d ago`;
+    71→}
+    72→
+    73→export function ToolsView() {
+    74→  const { refreshing } = useToolkitStore();
+    75→  const [tools, setTools] = useState<Tool[]>([]);
+    76→  const [selectedId, setSelectedId] = useState<string | null>(null);
+    77→  const [selected, setSelected] = useState<Tool | null>(null);
+    78→  const [loading, setLoading] = useState(true);
+    79→  const [executing, setExecuting] = useState(false);
+    80→  const [createOpen, setCreateOpen] = useState(false);
+    81→  const [editOpen, setEditOpen] = useState(false);
+    82→  const [editTool, setEditTool] = useState({ name: "", description: "", endpoint: "", config: "" });
+    83→  const [newTool, setNewTool] = useState({ name: "", description: "", type: "api", endpoint: "", config: "{}" });
+    84→  const [execInput, setExecInput] = useState("");
+    85→  const [expandedExecs, setExpandedExecs] = useState<Set<string>>(new Set());
+    86→  const [updating, setUpdating] = useState(false);
+    87→
+    88→  const fetchTools = useCallback(async (signal?: AbortSignal) => {
+    89→    if (signal?.aborted) return;
+    90→    const res = await fetch("/api/tools", { signal });
+    91→    const data = await res.json();
+    92→    if (!signal?.aborted) {
+    93→      setTools(data);
+    94→      setLoading(false);
+    95→    }
+    96→  }, []);
+    97→
+    98→  useEffect(() => {
+    99→    const controller = new AbortController();
+   100→    // eslint-disable-next-line react-hooks/set-state-in-effect
+   101→    setLoading(true);
+   102→    void fetchTools(controller.signal);
+   103→    return () => controller.abort();
+   104→  }, [fetchTools, refreshing]);
+   105→
+   106→  useEffect(() => {
+   107→    if (selectedId) {
+   108→      const controller = new AbortController();
+   109→      fetch(`/api/tools/${selectedId}`, { signal: controller.signal })
+   110→        .then((r) => r.json())
+   111→        .then((data) => { if (!controller.signal.aborted) setSelected(data); });
+   112→      return () => controller.abort();
+   113→    } else {
+   114→      // Use setTimeout to avoid synchronous setState in effect
+   115→      const id = setTimeout(() => setSelected(null), 0);
+   116→      return () => clearTimeout(id);
+   117→    }
+   118→  }, [selectedId, refreshing]);
+   119→
+   120→  const handleCreate = async () => {
+   121→    await fetch("/api/tools", {
+   122→      method: "POST",
+   123→      headers: { "Content-Type": "application/json" },
+   124→      body: JSON.stringify(newTool),
+   125→    });
+   126→    toast.success("Tool created successfully");
+   127→    setCreateOpen(false);
+   128→    setNewTool({ name: "", description: "", type: "api", endpoint: "", config: "{}" });
+   129→    fetchTools();
+   130→  };
+   131→
+   132→  const handleDelete = async (id: string) => {
+   133→    await fetch(`/api/tools/${id}`, { method: "DELETE" });
+   134→    toast.success("Tool deleted");
+   135→    if (selectedId === id) setSelectedId(null);
+   136→    fetchTools();
+   137→  };
+   138→
+   139→  const handleEdit = async () => {
+   140→    if (!selectedId) return;
+   141→    setUpdating(true);
+   142→    try {
+   143→      await fetch(`/api/tools/${selectedId}`, {
+   144→        method: "PUT",
+   145→        headers: { "Content-Type": "application/json" },
+   146→        body: JSON.stringify(editTool),
+   147→      });
+   148→      toast.success("Tool updated");
+   149→      setEditOpen(false);
+   150→      fetchTools();
+   151→      fetch(`/api/tools/${selectedId}`).then((r) => r.json()).then(setSelected);
+   152→    } catch {
+   153→      toast.error("Failed to update tool");
+   154→    }
+   155→    setUpdating(false);
+   156→  };
+   157→
+   158→  const openEditDialog = () => {
+   159→    if (!selected) return;
+   160→    setEditTool({
+   161→      name: selected.name,
+   162→      description: selected.description,
+   163→      endpoint: selected.endpoint,
+   164→      config: selected.config || "{}",
+   165→    });
+   166→    setEditOpen(true);
+   167→  };
+   168→
+   169→  const handleStatusChange = async (newStatus: string) => {
+   170→    if (!selectedId) return;
+   171→    await fetch(`/api/tools/${selectedId}`, {
+   172→      method: "PUT",
+   173→      headers: { "Content-Type": "application/json" },
+   174→      body: JSON.stringify({ status: newStatus }),
+   175→    });
+   176→    toast.success(`Status changed to ${newStatus}`);
+   177→    fetchTools();
+   178→    fetch(`/api/tools/${selectedId}`).then((r) => r.json()).then(setSelected);
+   179→  };
+   180→
+   181→  const handleExecute = async () => {
+   182→    if (!selectedId) return;
+   183→    setExecuting(true);
+   184→    try {
+   185→      const res = await fetch(`/api/tools/${selectedId}/execute`, {
+   186→        method: "POST",
+   187→        headers: { "Content-Type": "application/json" },
+   188→        body: JSON.stringify({ input: execInput || "Run tool" }),
+   189→      });
+   190→      const exec = await res.json();
+   191→      toast.success(`Tool completed in ${exec.duration}ms`);
+   192→      setExecInput("");
+   193→      fetch(`/api/tools/${selectedId}`).then((r) => r.json()).then(setSelected);
+   194→      fetchTools();
+   195→    } catch { toast.error("Execution failed"); }
+   196→    setExecuting(false);
+   197→  };
+   198→
+   199→  const toggleExecExpand = (id: string) => {
+   200→    setExpandedExecs((prev) => {
+   201→      const next = new Set(prev);
+   202→      if (next.has(id)) next.delete(id);
+   203→      else next.add(id);
+   204→      return next;
+   205→    });
+   206→  };
+   207→
+   208→  return (
+   209→    <div className="space-y-6">
+   210→      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+   211→        <div>
+   212→          <h2 className="text-2xl font-bold tracking-tight">Tools</h2>
+   213→          <p className="text-muted-foreground mt-1">Connect external tools, APIs, and utilities.</p>
+   214→        </div>
+   215→        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+   216→          <DialogTrigger asChild>
+   217→            <Button className="gap-2"><Plus className="h-4 w-4" />New Tool</Button>
+   218→          </DialogTrigger>
+   219→          <DialogContent className="sm:max-w-md">
+   220→            <DialogHeader><DialogTitle>Register Tool</DialogTitle></DialogHeader>
+   221→            <div className="space-y-4 pt-2">
+   222→              <div className="space-y-2">
+   223→                <Label>Name</Label>
+   224→                <Input value={newTool.name} onChange={(e) => setNewTool({ ...newTool, name: e.target.value })} placeholder="Web Search" />
+   225→              </div>
+   226→              <div className="space-y-2">
+   227→                <Label>Type</Label>
+   228→                <Select value={newTool.type} onValueChange={(v) => setNewTool({ ...newTool, type: v })}>
+   229→                  <SelectTrigger><SelectValue /></SelectTrigger>
+   230→                  <SelectContent>
+   231→                    {["api", "search", "document", "database", "local", "mcp"].map((t) => (
+   232→                      <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+   233→                    ))}
+   234→                  </SelectContent>
+   235→                </Select>
+   236→              </div>
+   237→              <div className="space-y-2">
+   238→                <Label>Endpoint</Label>
+   239→                <Input value={newTool.endpoint} onChange={(e) => setNewTool({ ...newTool, endpoint: e.target.value })} placeholder="https://api.example.com/v1" />
+   240→              </div>
+   241→              <div className="space-y-2">
+   242→                <Label>Description</Label>
+   243→                <Textarea value={newTool.description} onChange={(e) => setNewTool({ ...newTool, description: e.target.value })} placeholder="What does this tool do?" rows={2} />
+   244→              </div>
+   245→              <div className="space-y-2">
+   246→                <Label>Config (JSON)</Label>
+   247→                <Textarea value={newTool.config} onChange={(e) => setNewTool({ ...newTool, config: e.target.value })} placeholder='{"key": "value"}' rows={2} className="font-mono text-xs" />
+   248→              </div>
+   249→              <Button onClick={handleCreate} className="w-full" disabled={!newTool.name}>Register Tool</Button>
+   250→            </div>
+   251→          </DialogContent>
+   252→        </Dialog>
+   253→      </div>
+   254→
+   255→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   256→        {/* Tool List */}
+   257→        <div className="lg:col-span-1">
+   258→          <Card>
+   259→            <CardHeader className="pb-3">
+   260→              <div className="flex items-center justify-between">
+   261→                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">All Tools</CardTitle>
+   262→                <Badge variant="secondary" className="text-xs font-normal">{tools.length}</Badge>
+   263→              </div>
+   264→            </CardHeader>
+   265→            <CardContent className="p-2">
+   266→              {loading ? (
+   267→                <div className="space-y-2 p-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}</div>
+   268→              ) : tools.length === 0 ? (
+   269→                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+   270→                  <div className="p-3 rounded-2xl bg-muted/60 mb-3">
+   271→                    <WrenchIcon className="h-8 w-8 text-muted-foreground" />
+   272→                  </div>
+   273→                  <p className="text-sm font-medium text-muted-foreground">No tools yet</p>
+   274→                  <p className="text-xs text-muted-foreground/70 mt-1">Register your first tool to get started</p>
+   275→                </div>
+   276→              ) : (
+   277→                <ScrollArea className="max-h-[520px]">
+   278→                  <div className="space-y-1 p-1">
+   279→                    <AnimatePresence mode="popLayout">
+   280→                      {tools.map((tool, idx) => {
+   281→                        const tc = TYPE_CONFIG[tool.type] || TYPE_CONFIG.api;
+   282→                        const sc = STATUS_CONFIG[tool.status] || STATUS_CONFIG.draft;
+   283→                        const Icon = tc.icon;
+   284→                        return (
+   285→                          <motion.button
+   286→                            key={tool.id}
+   287→                            initial={{ opacity: 0, y: 8 }}
+   288→                            animate={{ opacity: 1, y: 0 }}
+   289→                            exit={{ opacity: 0, y: -8 }}
+   290→                            transition={{ duration: 0.2, delay: idx * 0.03 }}
+   291→                            onClick={() => setSelectedId(tool.id === selectedId ? null : tool.id)}
+   292→                            className={`w-full text-left p-3 rounded-lg transition-all duration-200 group hover:bg-muted/60 border-l-4 ${tc.border} ${selectedId === tool.id ? "bg-muted border border-border border-l-4 shadow-sm" : "border-l-transparent"}`}
+   293→                          >
+   294→                            <div className="flex items-center gap-3">
+   295→                              <div className={`p-2 rounded-lg ${tc.bg} transition-transform duration-200 group-hover:scale-105`}>
+   296→                                <Icon className={`h-4 w-4 ${tc.color}`} />
+   297→                              </div>
+   298→                              <div className="flex-1 min-w-0">
+   299→                                <div className="flex items-center gap-2">
+   300→                                  <p className="font-medium text-sm truncate">{tool.name}</p>
+   301→                                  <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${sc.dotColor}`} />
+   302→                                </div>
+   303→                                <p className="text-xs text-muted-foreground capitalize mt-0.5">{tool.type}</p>
+   304→                              </div>
+   305→                              <div className="flex items-center gap-1.5 flex-shrink-0">
+   306→                                {tool._count?.workflowNodes ? (
+   307→                                  <Tooltip>
+   308→                                    <TooltipTrigger asChild>
+   309→                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1">
+   310→                                        <Workflow className="h-2.5 w-2.5" />{tool._count.workflowNodes}
+   311→                                      </Badge>
+   312→                                    </TooltipTrigger>
+   313→                                    <TooltipContent>{tool._count.workflowNodes} workflow{tool._count.workflowNodes > 1 ? "s" : ""}</TooltipContent>
+   314→                                  </Tooltip>
+   315→                                ) : null}
+   316→                                <ChevronRight className={`h-4 w-4 text-muted-foreground transition-all duration-200 ${selectedId === tool.id ? "opacity-100 translate-x-0" : "opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0"}`} />
+   317→                              </div>
+   318→                            </div>
+   319→                          </motion.button>
+   320→                        );
+   321→                      })}
+   322→                    </AnimatePresence>
+   323→                  </div>
+   324→                </ScrollArea>
+   325→              )}
+   326→            </CardContent>
+   327→          </Card>
+   328→        </div>
+   329→
+   330→        {/* Detail Panel */}
+   331→        <div className="lg:col-span-2">
+   332→          <AnimatePresence mode="wait">
+   333→            {selected ? (() => {
+   334→              const tc = TYPE_CONFIG[selected.type] || TYPE_CONFIG.api;
+   335→              const sc = STATUS_CONFIG[selected.status] || STATUS_CONFIG.draft;
+   336→              const Icon = tc.icon;
+   337→              return (
+   338→                <motion.div
+   339→                  key={selected.id}
+   340→                  initial={{ opacity: 0, x: 12 }}
+   341→                  animate={{ opacity: 1, x: 0 }}
+   342→                  exit={{ opacity: 0, x: -12 }}
+   343→                  transition={{ duration: 0.25 }}
+   344→                >
+   345→                  <Card>
+   346→                    <CardHeader>
+   347→                      <div className="flex items-start justify-between gap-4">
+   348→                        <div className="flex items-center gap-3 min-w-0">
+   349→                          <div className={`p-3 rounded-xl ${tc.bg} flex-shrink-0`}>
+   350→                            <Icon className={`h-6 w-6 ${tc.color}`} />
+   351→                          </div>
+   352→                          <div className="min-w-0">
+   353→                            <CardTitle className="flex items-center gap-2 flex-wrap">
+   354→                              {selected.name}
+   355→                              <Badge className={`${sc.color} text-xs gap-1`}>
+   356→                                <span className={`h-1.5 w-1.5 rounded-full ${sc.dotColor}`} />
+   357→                                {sc.label}
+   358→                              </Badge>
+   359→                            </CardTitle>
+   360→                            <CardDescription className="mt-1 line-clamp-2">{selected.description}</CardDescription>
+   361→                          </div>
+   362→                        </div>
+   363→                        <div className="flex items-center gap-1 flex-shrink-0">
+   364→                          <Tooltip>
+   365→                            <TooltipTrigger asChild>
+   366→                              <Button variant="ghost" size="icon" onClick={openEditDialog} className="text-muted-foreground hover:text-foreground">
+   367→                                <Edit3 className="h-4 w-4" />
+   368→                              </Button>
+   369→                            </TooltipTrigger>
+   370→                            <TooltipContent>Edit tool</TooltipContent>
+   371→                          </Tooltip>
+   372→                          <DropdownMenu>
+   373→                            <DropdownMenuTrigger asChild>
+   374→                              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+   375→                                <MoreHorizontal className="h-4 w-4" />
+   376→                              </Button>
+   377→                            </DropdownMenuTrigger>
+   378→                            <DropdownMenuContent align="end">
+   379→                              <DropdownMenuItem onClick={() => handleStatusChange("active")} className="gap-2">
+   380→                                <CircleDot className="h-3.5 w-3.5 text-emerald-500" />Set Active
+   381→                              </DropdownMenuItem>
+   382→                              <DropdownMenuItem onClick={() => handleStatusChange("draft")} className="gap-2">
+   383→                                <Wrench className="h-3.5 w-3.5 text-amber-500" />Set Draft
+   384→                              </DropdownMenuItem>
+   385→                              <DropdownMenuItem onClick={() => handleStatusChange("archived")} className="gap-2">
+   386→                                <Archive className="h-3.5 w-3.5 text-zinc-500" />Set Archived
+   387→                              </DropdownMenuItem>
+   388→                              <DropdownMenuSeparator />
+   389→                              <DropdownMenuItem onClick={() => handleDelete(selected.id)} className="gap-2 text-destructive focus:text-destructive">
+   390→                                <Trash2 className="h-3.5 w-3.5" />Delete
+   391→                              </DropdownMenuItem>
+   392→                            </DropdownMenuContent>
+   393→                          </DropdownMenu>
+   394→                        </div>
+   395→                      </div>
+   396→                    </CardHeader>
+   397→                    <CardContent className="space-y-4">
+   398→                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+   399→                        <div className="p-3 rounded-lg bg-muted/40 border border-border/50">
+   400→                          <p className="text-xs text-muted-foreground flex items-center gap-1"><Globe className="h-3 w-3" />Endpoint</p>
+   401→                          <p className="text-xs font-mono mt-1 truncate">{selected.endpoint || "—"}</p>
+   402→                        </div>
+   403→                        <div className="p-3 rounded-lg bg-muted/40 border border-border/50">
+   404→                          <p className="text-xs text-muted-foreground flex items-center gap-1"><Activity className="h-3 w-3" />Executions</p>
+   405→                          <p className="text-lg font-semibold">{selected._count?.executions || selected.executions?.length || 0}</p>
+   406→                        </div>
+   407→                        <div className="p-3 rounded-lg bg-muted/40 border border-border/50">
+   408→                          <p className="text-xs text-muted-foreground flex items-center gap-1"><Workflow className="h-3 w-3" />Workflows</p>
+   409→                          <p className="text-lg font-semibold">{selected._count?.workflowNodes || 0}</p>
+   410→                        </div>
+   411→                        <div className="p-3 rounded-lg bg-muted/40 border border-border/50">
+   412→                          <p className="text-xs text-muted-foreground flex items-center gap-1"><CircleDot className="h-3 w-3" />Status</p>
+   413→                          <p className="text-sm font-medium capitalize">{selected.status}</p>
+   414→                        </div>
+   415→                      </div>
+   416→
+   417→                      {selected.config && selected.config !== "{}" && (
+   418→                        <div className="p-3 rounded-lg bg-muted/30 border border-border/50">
+   419→                          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+   420→                            <Layers className="h-3 w-3" />Configuration
+   421→                          </p>
+   422→                          <pre className="text-xs font-mono overflow-auto max-h-28 bg-background/50 rounded p-2 border border-border/30">
+   423→                            {(() => { try { return JSON.stringify(JSON.parse(selected.config), null, 2); } catch { return selected.config; } })()}
+   424→                          </pre>
+   425→                        </div>
+   426→                      )}
+   427→
+   428→                      <Separator />
+   429→
+   430→                      {/* Execution Input */}
+   431→                      <div>
+   432→                        <p className="text-sm font-medium mb-2 flex items-center gap-2">
+   433→                          <Play className="h-4 w-4" />Execute Tool
+   434→                        </p>
+   435→                        <div className="flex gap-2">
+   436→                          <Input value={execInput} onChange={(e) => setExecInput(e.target.value)} placeholder="Enter tool input..." onKeyDown={(e) => e.key === "Enter" && handleExecute()} />
+   437→                          <Button onClick={handleExecute} disabled={executing} className="gap-2 flex-shrink-0">
+   438→                            {executing ? (
+   439→                              <><Zap className="h-4 w-4 animate-pulse" /><span className="hidden sm:inline">Running</span></>
+   440→                            ) : (
+   441→                              <><Play className="h-4 w-4" /><span className="hidden sm:inline">Run</span></>
+   442→                            )}
+   443→                          </Button>
+   444→                        </div>
+   445→                      </div>
+   446→
+   447→                      {/* Execution History */}
+   448→                      {selected.executions && selected.executions.length > 0 && (
+   449→                        <>
+   450→                          <Separator />
+   451→                          <div>
+   452→                            <p className="text-sm font-medium mb-3 flex items-center gap-2">
+   453→                              <Clock className="h-4 w-4" />Execution History
+   454→                              <Badge variant="secondary" className="text-xs font-normal">{selected.executions.length}</Badge>
+   455→                            </p>
+   456→                            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+   457→                              {selected.executions.map((exec) => {
+   458→                                const isExpanded = expandedExecs.has(exec.id);
+   459→                                const isCompleted = exec.status === "completed";
+   460→                                return (
+   461→                                  <motion.div
+   462→                                    key={exec.id}
+   463→                                    initial={{ opacity: 0, y: 4 }}
+   464→                                    animate={{ opacity: 1, y: 0 }}
+   465→                                    className="rounded-lg border border-border/60 overflow-hidden bg-card"
+   466→                                  >
+   467→                                    <Collapsible open={isExpanded} onOpenChange={() => toggleExecExpand(exec.id)}>
+   468→                                      <CollapsibleTrigger asChild>
+   469→                                        <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/40 transition-colors">
+   470→                                          <div className="flex items-center gap-2">
+   471→                                            {isCompleted ? (
+   472→                                              <Check className="h-4 w-4 text-emerald-500" />
+   473→                                            ) : (
+   474→                                              <X className="h-4 w-4 text-rose-500" />
+   475→                                            )}
+   476→                                            <Badge variant={isCompleted ? "default" : "secondary"} className="text-xs">
+   477→                                              {exec.status}
+   478→                                            </Badge>
+   479→                                            <span className="text-xs font-mono text-muted-foreground truncate max-w-[140px] sm:max-w-[220px]">
+   480→                                              {exec.input}
+   481→                                            </span>
+   482→                                          </div>
+   483→                                          <div className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
+   484→                                            <span className="flex items-center gap-1">
+   485→                                              <Zap className="h-3 w-3" />{exec.duration}ms
+   486→                                            </span>
+   487→                                            <span className="hidden sm:inline">{timeAgo(exec.createdAt)}</span>
+   488→                                            <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+   489→                                          </div>
+   490→                                        </div>
+   491→                                      </CollapsibleTrigger>
+   492→                                      <CollapsibleContent>
+   493→                                        <div className="px-3 pb-3">
+   494→                                          <pre className="text-xs font-mono bg-muted/50 p-3 rounded-md overflow-auto max-h-48 whitespace-pre-wrap border border-border/40 leading-relaxed">
+   495→                                            {exec.output}
+   496→                                          </pre>
+   497→                                        </div>
+   498→                                      </CollapsibleContent>
+   499→                                    </Collapsible>
+   500→                                  </motion.div>
+   501→                                );
+   502→                              })}
+   503→                            </div>
+   504→                          </div>
+   505→                        </>
+   506→                      )}
+   507→                    </CardContent>
+   508→                  </Card>
+   509→                </motion.div>
+   510→              );
+   511→            })() : (
+   512→              <motion.div
+   513→                key="empty"
+   514→                initial={{ opacity: 0, y: 8 }}
+   515→                animate={{ opacity: 1, y: 0 }}
+   516→                exit={{ opacity: 0, y: -8 }}
+   517→              >
+   518→                <Card className="flex flex-col items-center justify-center h-72 border-dashed">
+   519→                  <div className="p-4 rounded-2xl bg-muted/60 mb-4">
+   520→                    <Inbox className="h-10 w-10 text-muted-foreground/50" />
+   521→                  </div>
+   522→                  <p className="text-muted-foreground font-medium">Select a tool to view details</p>
+   523→                  <p className="text-xs text-muted-foreground/60 mt-1">Choose from the list or create a new tool</p>
+   524→                </Card>
+   525→              </motion.div>
+   526→            )}
+   527→          </AnimatePresence>
+   528→        </div>
+   529→      </div>
+   530→
+   531→      {/* Edit Dialog */}
+   532→      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+   533→        <DialogContent className="sm:max-w-md">
+   534→          <DialogHeader><DialogTitle>Edit Tool</DialogTitle></DialogHeader>
+   535→          <div className="space-y-4 pt-2">
+   536→            <div className="space-y-2">
+   537→              <Label>Name</Label>
+   538→              <Input value={editTool.name} onChange={(e) => setEditTool({ ...editTool, name: e.target.value })} />
+   539→            </div>
+   540→            <div className="space-y-2">
+   541→              <Label>Description</Label>
+   542→              <Textarea value={editTool.description} onChange={(e) => setEditTool({ ...editTool, description: e.target.value })} rows={2} />
+   543→            </div>
+   544→            <div className="space-y-2">
+   545→              <Label>Endpoint</Label>
+   546→              <Input value={editTool.endpoint} onChange={(e) => setEditTool({ ...editTool, endpoint: e.target.value })} />
+   547→            </div>
+   548→            <div className="space-y-2">
+   549→              <Label>Config (JSON)</Label>
+   550→              <Textarea value={editTool.config} onChange={(e) => setEditTool({ ...editTool, config: e.target.value })} rows={3} className="font-mono text-xs" />
+   551→            </div>
+   552→            <DialogFooter className="gap-2 sm:gap-0">
+   553→              <DialogClose asChild>
+   554→                <Button variant="outline">Cancel</Button>
+   555→              </DialogClose>
+   556→              <Button onClick={handleEdit} disabled={updating || !editTool.name}>
+   557→                {updating ? "Saving..." : "Save Changes"}
+   558→              </Button>
+   559→            </DialogFooter>
+   560→          </div>
+   561→        </DialogContent>
+   562→      </Dialog>
+   563→    </div>
+   564→  );
+   565→}
