@@ -142,3 +142,19 @@ model Evaluation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model Document {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  fileName    String   @default("")
+  fileSize    Int      @default(0) // bytes
+  mimeType    String   @default("")
+  status      String   @default("pending") // pending, processing, completed, failed
+  content     String   @default("") // extracted text content
+  metadata    String   @default("{}") // JSON: pages, sections, entities, etc.
+  tags        String   @default("[]") // JSON array of tags
+  source      String   @default("upload") // upload, url, api
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

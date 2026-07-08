@@ -1,4 +1,5 @@
 "use client";
+// Agentic Research Toolkit v2.0 - Main Page
 
 import { useToolkitStore, type TabId } from "@/hooks/use-toolkit-store";
 import { Button } from "@/components/ui/button";
@@ -18,19 +19,23 @@ import {
   Wrench,
   Brain,
   BarChart3,
+  FileUp,
   Menu,
   X,
   Sun,
   Moon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { CommandPalette } from "@/components/toolkit/CommandPalette";
+import { DocumentsView } from "@/components/toolkit/DocumentsView";
 
 const NAV_ITEMS: { id: TabId; label: string; icon: typeof LayoutDashboard; description: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, description: "System overview" },
   { id: "agents", label: "Agents", icon: Bot, description: "Research agents" },
   { id: "workflows", label: "Workflows", icon: GitBranch, description: "Orchestration" },
   { id: "tools", label: "Tools", icon: Wrench, description: "External tools" },
+  { id: "documents", label: "Documents", icon: FileUp, description: "Ingestion pipeline" },
   { id: "memory", label: "Memory", icon: Brain, description: "Context store" },
   { id: "evaluations", label: "Evaluations", icon: BarChart3, description: "Quality checks" },
 ];
@@ -151,15 +156,29 @@ const VIEW_MAP: Record<TabId, React.ComponentType> = {
   agents: AgentsView,
   workflows: WorkflowsView,
   tools: ToolsView,
+  documents: DocumentsView,
   memory: MemoryView,
   evaluations: EvaluationsView,
 };
 
 export default function Home() {
-  const { activeTab, setRefreshing, refreshing } = useToolkitStore();
+  const { activeTab, setRefreshing, refreshing, setCommandPaletteOpen } = useToolkitStore();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Cmd+K / Ctrl+K to open command palette
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      setCommandPaletteOpen(true);
+    }
+  }, [setCommandPaletteOpen]);
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   const handleRefresh = () => {
     setRefreshing(!refreshing);
@@ -171,6 +190,7 @@ export default function Home() {
 
   return (
     <TooltipProvider>
+      <CommandPalette />
       <div className="min-h-screen flex">
         <Sidebar />
         <main className="flex-1 lg:ml-64">
@@ -212,7 +232,7 @@ export default function Home() {
           {/* Footer */}
           <footer className="mt-auto border-t py-4 px-6">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Agentic Research Toolkit — Modular, extensible, evaluation-driven.</span>
+              <span>Agentic Research Toolkit - Modular, extensible, evaluation-driven.</span>
               <span>MIT License</span>
             </div>
           </footer>

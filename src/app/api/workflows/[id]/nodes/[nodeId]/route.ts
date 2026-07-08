@@ -33,7 +33,9 @@ export async function DELETE(
   try {
     const { nodeId } = await params;
     await db.workflowConnection.deleteMany({
-      OR: [{ sourceNodeId: nodeId }, { targetNodeId: nodeId }],
+      where: {
+        OR: [{ sourceNodeId: nodeId }, { targetNodeId: nodeId }],
+      },
     });
     await db.workflowNode.delete({ where: { id: nodeId } });
     return NextResponse.json({ success: true });

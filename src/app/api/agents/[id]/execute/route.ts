@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
+import { executionEventBus } from "@/lib/execution-events";
 
 const MOCK_OUTPUTS: Record<string, string> = {
   research: `## Research Findings\n\nBased on comprehensive analysis of the available literature and data sources:\n\n1. **Key Insight**: The primary research question can be addressed through a multi-phase approach combining qualitative and quantitative methods.\n\n2. **Supporting Evidence**: Multiple peer-reviewed studies (n=47) confirm the statistical significance of the observed patterns (p < 0.001).\n\n3. **Gap Analysis**: Current literature lacks longitudinal studies examining the interaction effects between variables A and B over extended time periods.\n\n4. **Recommendation**: Future research should prioritize controlled experimental designs with larger sample sizes to validate preliminary findings.`,
@@ -30,7 +31,27 @@ export async function POST(
       },
     });
 
+    // Emit agent_start event
+    executionEventBus.emit({
+      type: "agent_start",
+      id: execution.id,
+      name: agent.name,
+      status: "running",
+      progress: 0,
+      timestamp: new Date().toISOString(),
+    });
+
     await new Promise((r) => setTimeout(r, 1200));
+
+    // Emit agent_progress event
+    executionEventBus.emit({
+      type: "agent_progress",
+      id: execution.id,
+      name: agent.name,
+      status: "running",
+      progress: 50,
+      timestamp: new Date().toISOString(),
+    });
 
     const output =
       MOCK_OUTPUTS[agent.type] || MOCK_OUTPUTS.custom;
@@ -43,6 +64,16 @@ export async function POST(
         duration: 1200 + Math.floor(Math.random() * 800),
         tokensUsed: 300 + Math.floor(Math.random() * 200),
       },
+    });
+
+    // Emit agent_complete event
+    executionEventBus.emit({
+      type: "agent_complete",
+      id: execution.id,
+      name: agent.name,
+      status: "completed",
+      progress: 100,
+      timestamp: new Date().toISOString(),
     });
 
     return NextResponse.json(updated, { status: 201 });

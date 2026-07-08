@@ -90,7 +90,6 @@ export function MemoryView() {
 
   useEffect(() => {
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     void fetchEntries(controller.signal);
     return () => controller.abort();

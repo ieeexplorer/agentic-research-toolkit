@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToolkitStore } from "@/hooks/use-toolkit-store";
+import { useExecutionStream } from "@/hooks/use-execution-stream";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
@@ -10,11 +11,12 @@ import {
   Wrench,
   GitBranch,
   Brain,
-  BarChart3,
   Activity,
   TrendingUp,
   Zap,
   Clock,
+  Play,
+  Radio,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 
@@ -92,6 +94,119 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function getEventIcon(type: string) {
+  if (type.startsWith("agent")) return Play;
+  if (type.startsWith("tool")) return Wrench;
+  if (type.startsWith("workflow")) return GitBranch;
+  return Zap;
+}
+
+function getEventIconColor(type: string) {
+  if (type.startsWith("agent")) return "text-emerald-500";
+  if (type.startsWith("tool")) return "text-amber-500";
+  if (type.startsWith("workflow")) return "text-violet-500";
+  return "text-muted-foreground";
+}
+
+function getEventStatusLabel(status: string) {
+  if (status === "running") return <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400">running</Badge>;
+  if (status === "completed") return <Badge variant="default" className="text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">completed</Badge>;
+  return <Badge variant="secondary" className="text-xs">{status}</Badge>;
+}
+
+function getEventTypeLabel(type: string) {
+  if (type.startsWith("agent")) return "Agent";
+  if (type.startsWith("tool")) return "Tool";
+  if (type.startsWith("workflow_node")) return "Node";
+  if (type.startsWith("workflow")) return "Workflow";
+  return type;
+}
+
+function LiveActivityCard() {
+  const { events, connected } = useExecutionStream();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const liveEvents = useToolkitStore((s) => s.liveEvents);
+
+  // Auto-scroll to latest event
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [events]);
+
+  const displayEvents = liveEvents.length > 0 ? liveEvents : events;
+  const last5 = displayEvents.slice(-5);
+
+  return (
+    <Card className="border-l-4 border-l-emerald-500">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Radio className="h-4 w-4" /> Live Activity
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <span className={`relative flex h-2.5 w-2.5 ${connected ? "" : "opacity-40"}`}>
+              {connected && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              )}
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${connected ? "bg-emerald-500" : "bg-gray-400"}`} />
+            </span>
+            <span className={`text-xs font-medium ${connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+              {connected ? "Connected" : "Disconnected"}
+            </span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {last5.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2 text-center">
+            No live activity — execute an agent or workflow to see real-time progress
+          </p>
+        ) : (
+          <div ref={scrollRef} className="space-y-1.5 max-h-64 overflow-y-auto">
+            {last5.map((event, idx) => {
+              const Icon = getEventIcon(event.type);
+              const iconColor = getEventIconColor(event.type);
+              return (
+                <div
+                  key={`${event.id}-${event.type}-${idx}`}
+                  className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          {getEventTypeLabel(event.type)}
+                        </span>
+                        <span className="text-sm font-medium truncate">{event.name}</span>
+                      </div>
+                      {event.progress !== undefined && (
+                        <div className="w-24 bg-muted rounded-full h-1 mt-0.5">
+                          <div
+                            className="h-1 rounded-full bg-emerald-500 transition-all duration-300"
+                            style={{ width: `${event.progress}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2.5 flex-shrink-0 ml-2">
+                    {getEventStatusLabel(event.status)}
+                    <span className="text-xs text-muted-foreground w-14 text-right">
+                      {timeAgo(event.timestamp)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function DashboardView() {
   const { refreshing } = useToolkitStore();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -127,6 +242,9 @@ export function DashboardView() {
         <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
         <p className="text-muted-foreground">Overview of your agentic research toolkit.</p>
       </div>
+
+      {/* Live Activity Card - at the TOP */}
+      <LiveActivityCard />
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
